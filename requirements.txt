@@ -1,4 +1,4 @@
-﻿flask
+flask
 twilio
 aiohttp
 python-dotenv
