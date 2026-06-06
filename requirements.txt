@@ -1,3 +1,5 @@
-flask
+﻿flask
 twilio
-requests
+aiohttp
+python-dotenv
+gunicorn
