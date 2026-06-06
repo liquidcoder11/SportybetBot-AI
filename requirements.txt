@@ -1,0 +1,5 @@
+﻿flask
+twilio
+aiohttp
+python-dotenv
+gunicorn
