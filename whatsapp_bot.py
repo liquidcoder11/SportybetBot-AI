@@ -7,23 +7,17 @@ from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
 from datetime import datetime, timedelta
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
-@app.after_request
-def add_ngrok_header(response):
-    response.headers['ngrok-skip-browser-warning'] = 'true'
-    return response
 
 TWILIO_ACCOUNT_SID  = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN   = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_NUMBER       = os.getenv("TWILIO_NUMBER")
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY")
-GEMINI_URL          = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+GEMINI_URL          = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 FOOTBALL_API_KEY    = os.getenv("FOOTBALL_API_KEY")
 FOOTBALL_API_URL    = "https://sports.bzzoiro.com/api"
 APIFOOTBALL_KEY     = os.getenv("APIFOOTBALL_KEY")
@@ -301,17 +295,26 @@ async def ask_ai(user_message, history):
     contents.append({"role": "user", "parts": [{"text": user_message}]})
     payload = {"contents": contents, "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.7}}
     url = GEMINI_URL + "?key=" + GEMINI_API_KEY
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                data = await resp.json(content_type=None)
-                if "candidates" in data:
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
-                elif "error" in data:
-                    return "AI error: " + data["error"].get("message", "Unknown")
-                return "Sorry I could not generate a response. Please try again."
-    except Exception as e:
-        return "AI error: " + str(e)
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    data = await resp.json(content_type=None)
+                    if "candidates" in data:
+                        return data["candidates"][0]["content"]["parts"][0]["text"]
+                    elif "error" in data:
+                        err = data["error"].get("message", "Unknown")
+                        if "high demand" in err.lower() or "overloaded" in err.lower() or "quota" in err.lower():
+                            import asyncio as _a; await _a.sleep(4)
+                            continue
+                        return "AI error: " + err
+                    return "Sorry I could not generate a response. Please try again."
+        except Exception as e:
+            if attempt < 2:
+                import asyncio as _a; await _a.sleep(4)
+            else:
+                return "AI error: " + str(e)
+    return "Gemini is currently busy. Please try again in a moment."
 
 
 async def try_fetch_sportybet(code):
@@ -646,16 +649,14 @@ async def process_message(user_number, text):
 
 def send_whatsapp_message(to, message):
     try:
-        from_num = TWILIO_NUMBER if TWILIO_NUMBER.startswith('whatsapp:') else "whatsapp:" + TWILIO_NUMBER
-        to_num = to if to.startswith('whatsapp:') else "whatsapp:" + to
         if len(message) > 1500:
             parts = [message[i:i+1500] for i in range(0, len(message), 1500)]
             for part in parts:
-                twilio_client.messages.create(from_=from_num, body=part, to=to_num)
+                twilio_client.messages.create(from_=TWILIO_NUMBER, body=part, to=to)
         else:
-            twilio_client.messages.create(from_=from_num, body=message, to=to_num)
+            twilio_client.messages.create(from_=TWILIO_NUMBER, body=message, to=to)
     except Exception as e:
-        print("\n TWILIO SEND ERROR: " + str(e) + "\n")
+        print("Send error: " + str(e))
 
 
 @app.route("/webhook", methods=["POST"])
