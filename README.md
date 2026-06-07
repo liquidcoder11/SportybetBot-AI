@@ -1,6 +1,6 @@
 ---
 title: SportyBot AI
-emoji: u26BD
+emoji: soccer
 colorFrom: green
 colorTo: blue
 sdk: docker
