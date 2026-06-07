@@ -632,9 +632,7 @@ async def process_message(user_number, text):
         else:
             extra_context = "\n\n[Could not fetch code " + code + ". Tell user code may be expired and still help.]"
             print("Could not fetch code: " + code)
-        if needs_fixtures and not fetch_data:
-            fixtures = await get_todays_fixtures()
-            extra_context += "\n\n[TODAY FIXTURES]\n" + fixtures[:1500] + "\n[END]"
+
     elif needs_fixtures:
         fixtures = await get_todays_fixtures()
         extra_context = "\n\n[TODAY FIXTURES WITH ODDS]\n" + fixtures[:2500] + "\n[END]"
