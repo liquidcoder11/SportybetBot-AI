@@ -3,15 +3,24 @@ import aiohttp
 import os
 import re
 import threading
+import json
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 app = Flask(__name__)
+
+@app.after_request
+def add_ngrok_header(response):
+    response.headers['ngrok-skip-browser-warning'] = 'true'
+    return response
 
 TWILIO_ACCOUNT_SID  = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN   = os.getenv("TWILIO_AUTH_TOKEN")
@@ -23,8 +32,11 @@ FOOTBALL_API_URL    = "https://sports.bzzoiro.com/api"
 APIFOOTBALL_KEY     = os.getenv("APIFOOTBALL_KEY")
 APIFOOTBALL_URL     = "https://v3.football.api-sports.io"
 
+SPORTYBET_COOKIES = "_ntes_nnid=c0a483ee57ef99619953b430898d0691; device-id=9d5a43cd-d116-4d75-9170-b7af46384a9a; sb_country=ng; deviceId=260607231024bdid03738532; usrId=260607231024pdid03738533"
+
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 user_history = {}
+user_code_data = {}  # Store raw selections per user
 
 SYSTEM_PROMPT = """You are SportyBot AI, an elite sports betting analyst for Nigerian bettors. You have access to real live football data including fixtures, odds, form, and head to head stats.
 
@@ -37,14 +49,57 @@ CRITICAL FORMATTING RULES - WHATSAPP ONLY:
 
 CRITICAL BOOKING CODE RULES:
 - NEVER invent or generate fake booking codes
-- When trimming or splitting a ticket, show the selected games clearly
-- After showing the games, tell the user: "Book these games manually on [bookie name] to get your code"
-- The real match data will be provided to you in [BOOKING CODE DATA] tags - use ONLY those exact teams and markets
+- When trimming or splitting, you MUST respond with a special JSON block so the bot can generate a real code
+- Always use ONLY the real teams and games from [BOOKING CODE DATA]
 - NEVER swap or replace teams with different ones
-- NEVER change the markets unless the user specifically asks
+
+FOR TRIM REQUEST:
+When user asks to trim a ticket, respond in this EXACT format:
+
+✅ Ticket Trimmed!
+
+Original: X games | Xx odds
+Trimmed: Y games | Yx odds
+
+---
+
+1️⃣ Home vs Away
+🌍 Tournament
+📈 Market - Pick
+💰 Odds: 1.xx
+
+[continue for each kept game]
+
+---
+
+📌 Generating your new SportyBet code...
+
+KEPT_GAMES:[1,2,3,4,5]
+
+The KEPT_GAMES line must list the game numbers from [BOOKING CODE DATA] to keep.
+
+FOR SPLIT REQUEST:
+When user asks to split a ticket, respond in this EXACT format for each slip:
+
+✅ Ticket Split into X slips!
+
+🎟 Slip 1 - Y games
+1️⃣ Home vs Away
+🌍 Tournament
+📈 Market - Pick
+💰 Odds: 1.xx
+
+📌 Generating Slip 1 code...
+
+SLIP_1_GAMES:[1,2,3,4,5]
+
+🎟 Slip 2 - Y games
+[games for slip 2]
+
+SLIP_2_GAMES:[6,7,8,9,10]
 
 FOR ACCUMULATOR:
-✅ 7-Game Accumulator Ready!
+✅ Accumulator Ready!
 
 📊 Combined Odds: 112.4x
 🎮 Total Games: 7
@@ -57,10 +112,6 @@ FOR ACCUMULATOR:
 🎯 Pick: Flamengo Win
 💰 Odds: 1.34
 ✅ Why: Flamengo are dominant at home
-
----
-💵 Combined Odds: 112.4x
-📌 Book these games on SportyBet to get your code
 
 FOR TIPS:
 🎯 Top 5 Safe Picks Today
@@ -86,36 +137,6 @@ FOR BANKER:
 🎯 Pick: Over 2.5
 💰 Odds: 1.65
 🔥 Confidence: Very High
-
-📝 Reasoning:
-Both PSV and Ajax average over 3 goals per game.
-
-FOR TICKET TRIM:
-When user asks to trim a ticket to target odds, pick games from [BOOKING CODE DATA] that get closest to target odds. Show only the kept games. Never add games not in the original ticket.
-
-✅ Ticket Trimmed to ~50 odds
-
-Original: 15 games | 448x
-Trimmed: 8 games | 52x
-
----
-1️⃣ USA vs Germany
-🌍 Int. Friendly Games
-📈 Market: Over/Under
-🎯 Pick: Under 3.5
-💰 Odds: 1.85
-
-📌 Book these games on SportyBet to get your new code
-
-FOR TICKET SPLIT:
-When splitting, divide the games from [BOOKING CODE DATA] into equal groups. Never invent new games.
-
-✅ Ticket Split into 2 slips
-
-🎟 Slip 1 - 8 games
-1. [real games from the code]
-Combined Odds: Xxx
-📌 Book on SportyBet
 
 FOR H2H AND FORM:
 📊 Match Analysis: Arsenal vs Chelsea
@@ -305,16 +326,41 @@ async def ask_ai(user_message, history):
                     elif "error" in data:
                         err = data["error"].get("message", "Unknown")
                         if "high demand" in err.lower() or "overloaded" in err.lower() or "quota" in err.lower():
-                            import asyncio as _a; await _a.sleep(4)
+                            await asyncio.sleep(4)
                             continue
                         return "AI error: " + err
                     return "Sorry I could not generate a response. Please try again."
         except Exception as e:
             if attempt < 2:
-                import asyncio as _a; await _a.sleep(4)
+                await asyncio.sleep(4)
             else:
                 return "AI error: " + str(e)
     return "Gemini is currently busy. Please try again in a moment."
+
+
+async def create_sportybet_code(selections):
+    """Create a real SportyBet booking code from selections array"""
+    url = "https://www.sportybet.com/api/ng/orders/share"
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Referer": "https://www.sportybet.com/ng/",
+        "Cookie": SPORTYBET_COOKIES
+    }
+    payload = {
+        "selections": selections,
+        "stake": 100000
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                data = await resp.json(content_type=None)
+                if data.get("bizCode") == 10000:
+                    return data.get("data", {}).get("shareCode", "")
+        return ""
+    except Exception:
+        return ""
 
 
 async def try_fetch_sportybet(code):
@@ -328,12 +374,13 @@ async def try_fetch_sportybet(code):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                 if resp.status != 200:
-                    return ""
+                    return "", []
                 data = await resp.json(content_type=None)
 
         ticket_data = data.get("data", {})
         outcomes = ticket_data.get("outcomes", [])
         ticket = ticket_data.get("ticket", {})
+        raw_selections = ticket.get("selections", [])
         display_odds = ticket.get("displayTotalOdds", "?")
 
         if outcomes:
@@ -355,10 +402,10 @@ async def try_fetch_sportybet(code):
                         pick_odds = str(outcomes_list[0].get("odds", "?"))
                 lines.append(str(i) + ". " + home + " vs " + away + " | " + tournament + " | " + market_name + " - " + pick_name + " @ " + pick_odds)
             lines.append("Combined Odds: " + display_odds + "x")
-            return "\n".join(lines)
-        return ""
+            return "\n".join(lines), raw_selections
+        return "", []
     except Exception:
-        return ""
+        return "", []
 
 
 async def try_fetch_bet9ja(code):
@@ -372,13 +419,13 @@ async def try_fetch_bet9ja(code):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                 if resp.status != 200:
-                    return ""
+                    return "", []
                 data = await resp.json(content_type=None)
         if data.get("R") != "OK":
-            return ""
+            return "", []
         outcomes = data.get("D", {}).get("O", {})
         if not outcomes:
-            return ""
+            return "", []
         lines = ["Booking Code: " + code.upper(), "Bookie: Bet9ja", "Total games: " + str(len(outcomes)), "", "Selections:"]
         total_odds = 1.0
         for i, (key, bet) in enumerate(outcomes.items(), 1):
@@ -389,9 +436,9 @@ async def try_fetch_bet9ja(code):
             pick = bet.get("ON", "")
             lines.append(str(i) + ". " + name + " | " + market + " - " + pick + " @ " + str(odds))
         lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
-        return "\n".join(lines)
+        return "\n".join(lines), []
     except Exception:
-        return ""
+        return "", []
 
 
 async def try_fetch_betking(code):
@@ -405,14 +452,14 @@ async def try_fetch_betking(code):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                 if resp.status != 200:
-                    return ""
+                    return "", []
                 data = await resp.json(content_type=None)
         if data.get("ResponseStatus") != 1:
-            return ""
+            return "", []
         coupon = data.get("BookedCoupon", {})
         bets = coupon.get("Bets", [])
         if not bets:
-            return ""
+            return "", []
         lines = ["Booking Code: " + code.upper(), "Bookie: BetKing", "Total games: " + str(len(bets)), "", "Selections:"]
         total_odds = 1.0
         for i, bet in enumerate(bets, 1):
@@ -424,9 +471,9 @@ async def try_fetch_betking(code):
             pick = bet.get("SelectionName", "")
             lines.append(str(i) + ". " + home + " vs " + away + " | " + market + " - " + pick + " @ " + str(odds))
         lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
-        return "\n".join(lines)
+        return "\n".join(lines), []
     except Exception:
-        return ""
+        return "", []
 
 
 async def try_fetch_betpawa(code):
@@ -443,11 +490,11 @@ async def try_fetch_betpawa(code):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                 if resp.status != 200:
-                    return ""
+                    return "", []
                 data = await resp.json(content_type=None)
         items = data.get("items", [])
         if not items:
-            return ""
+            return "", []
         lines = ["Booking Code: " + code.upper(), "Bookie: Betpawa", "Total games: " + str(len(items)), "", "Selections:"]
         total_odds = 1.0
         for i, item in enumerate(items, 1):
@@ -460,9 +507,9 @@ async def try_fetch_betpawa(code):
             pick = item.get("outcomeName", "")
             lines.append(str(i) + ". " + home + " vs " + away + " | " + market + " - " + pick + " @ " + str(odds))
         lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
-        return "\n".join(lines)
+        return "\n".join(lines), []
     except Exception:
-        return ""
+        return "", []
 
 
 async def try_fetch_footballcom(code):
@@ -476,11 +523,12 @@ async def try_fetch_footballcom(code):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                 if resp.status != 200:
-                    return ""
+                    return "", []
                 data = await resp.json(content_type=None)
         ticket_data = data.get("data", {})
         outcomes = ticket_data.get("outcomes", [])
         ticket = ticket_data.get("ticket", {})
+        raw_selections = ticket.get("selections", [])
         display_odds = ticket.get("displayTotalOdds", "?")
         if outcomes:
             lines = ["Booking Code: " + code.upper(), "Bookie: Football.com", "Total games: " + str(len(outcomes)), "", "Selections:"]
@@ -499,10 +547,10 @@ async def try_fetch_footballcom(code):
                         pick_odds = str(outcomes_list[0].get("odds", "?"))
                 lines.append(str(i) + ". " + home + " vs " + away + " | " + tournament + " | " + market_name + " - " + pick_name + " @ " + pick_odds)
             lines.append("Combined Odds: " + display_odds + "x")
-            return "\n".join(lines)
-        return ""
+            return "\n".join(lines), raw_selections
+        return "", []
     except Exception:
-        return ""
+        return "", []
 
 
 async def fetch_booking_code(code):
@@ -514,10 +562,19 @@ async def fetch_booking_code(code):
         try_fetch_footballcom,
     ]
     for fetcher in fetchers:
-        result = await fetcher(code)
+        result, selections = await fetcher(code)
         if result:
-            return result
-    return ""
+            return result, selections
+    return "", []
+
+
+def extract_kept_games(reply, pattern):
+    """Extract game numbers from Gemini reply e.g. KEPT_GAMES:[1,2,3]"""
+    match = re.search(pattern + r':\[([0-9,\s]+)\]', reply)
+    if match:
+        nums = [int(x.strip()) for x in match.group(1).split(",") if x.strip().isdigit()]
+        return nums
+    return []
 
 
 def extract_code(text):
@@ -580,6 +637,7 @@ async def process_message(user_number, text):
 
     if text_lower == "clear":
         user_history[user_number] = []
+        user_code_data.pop(user_number, None)
         return "Chat history cleared!"
 
     if text_lower.startswith("h2h ") and " vs " in text_lower:
@@ -625,19 +683,51 @@ async def process_message(user_number, text):
             fixtures = await get_todays_fixtures()
             extra_context += "\n\n[TODAY FIXTURES]\n" + fixtures[:1500] + "\n[END]"
     elif code:
-        fetch_data = await fetch_booking_code(code)
+        fetch_data, raw_selections = await fetch_booking_code(code)
         if fetch_data:
             extra_context = "\n\n[BOOKING CODE DATA]\n" + fetch_data + "\n[END]"
+            if raw_selections:
+                user_code_data[user_number] = raw_selections
             print("Fetched code data for: " + code)
         else:
             extra_context = "\n\n[Could not fetch code " + code + ". Tell user code may be expired and still help.]"
             print("Could not fetch code: " + code)
-
     elif needs_fixtures:
         fixtures = await get_todays_fixtures()
         extra_context = "\n\n[TODAY FIXTURES WITH ODDS]\n" + fixtures[:2500] + "\n[END]"
 
     reply = await ask_ai(text + extra_context, history)
+
+    # Check if Gemini wants to generate a real SportyBet code
+    raw_selections = user_code_data.get(user_number, [])
+    if raw_selections and "KEPT_GAMES:" in reply:
+        kept_nums = extract_kept_games(reply, "KEPT_GAMES")
+        if kept_nums:
+            kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
+            if kept_selections:
+                new_code = await create_sportybet_code(kept_selections)
+                reply = re.sub(r'KEPT_GAMES:\[[0-9,\s]+\]', '', reply).strip()
+                if new_code:
+                    reply += "\n\n📌 Your new SportyBet code: *" + new_code + "*"
+                else:
+                    reply += "\n\n⚠️ Could not generate code automatically. Please book these games manually on SportyBet."
+
+    # Handle split with multiple slips
+    if raw_selections and "SLIP_1_GAMES:" in reply:
+        slip_num = 1
+        while "SLIP_" + str(slip_num) + "_GAMES:" in reply:
+            kept_nums = extract_kept_games(reply, "SLIP_" + str(slip_num) + "_GAMES")
+            if kept_nums:
+                kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
+                if kept_selections:
+                    new_code = await create_sportybet_code(kept_selections)
+                    pattern = "SLIP_" + str(slip_num) + r"_GAMES:\[[0-9,\s]+\]"
+                    if new_code:
+                        reply = re.sub(pattern, "📌 Slip " + str(slip_num) + " Code: *" + new_code + "*", reply)
+                    else:
+                        reply = re.sub(pattern, "⚠️ Could not generate slip " + str(slip_num) + " code automatically.", reply)
+            slip_num += 1
+
     history.append({"role": "user", "content": text})
     history.append({"role": "assistant", "content": reply})
     if len(history) > 20:
@@ -647,14 +737,16 @@ async def process_message(user_number, text):
 
 def send_whatsapp_message(to, message):
     try:
+        from_num = TWILIO_NUMBER if TWILIO_NUMBER.startswith('whatsapp:') else "whatsapp:" + TWILIO_NUMBER
+        to_num = to if to.startswith('whatsapp:') else "whatsapp:" + to
         if len(message) > 1500:
             parts = [message[i:i+1500] for i in range(0, len(message), 1500)]
             for part in parts:
-                twilio_client.messages.create(from_=TWILIO_NUMBER, body=part, to=to)
+                twilio_client.messages.create(from_=from_num, body=part, to=to_num)
         else:
-            twilio_client.messages.create(from_=TWILIO_NUMBER, body=message, to=to)
+            twilio_client.messages.create(from_=from_num, body=message, to=to_num)
     except Exception as e:
-        print("Send error: " + str(e))
+        print("\n TWILIO SEND ERROR: " + str(e) + "\n")
 
 
 @app.route("/webhook", methods=["POST"])
