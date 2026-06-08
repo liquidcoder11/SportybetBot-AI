@@ -708,7 +708,11 @@ async def process_message(user_number, text):
                 new_code = await create_sportybet_code(kept_selections)
                 reply = re.sub(r'KEPT_GAMES:\[[0-9,\s]+\]', '', reply).strip()
                 if new_code:
-                    reply += "\n\n📌 Your new SportyBet code: *" + new_code + "*"
+                    reply = "?? Your new SportyBet code: *" + new_code + "*
+
+---
+
+" + reply
                 else:
                     reply += "\n\n⚠️ Could not generate code automatically. Please book these games manually on SportyBet."
 
