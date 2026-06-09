@@ -349,19 +349,28 @@ async def ask_ai(user_message, history):
 
 async def create_sportybet_code(selections):
     """Create a real SportyBet booking code from selections array"""
-    # FIX 1: Check cookies are available before attempting
     if not SPORTYBET_COOKIES:
         print("SPORTYBET_COOKIES env variable is not set — cannot generate code")
         return ""
     url = "https://www.sportybet.com/api/ng/orders/share"
     hdrs = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
         "Accept": "application/json",
         "Content-Type": "application/json",
         "Referer": "https://www.sportybet.com/ng/",
-        "Cookie": SPORTYBET_COOKIES
+        "Cookie": SPORTYBET_COOKIES,
+        "platform": "web"
     }
-    payload = {"selections": selections, "stake": 100000}
+    # Strip selections down to only what SportyBet needs — extra fields cause rejection
+    clean_selections = []
+    for s in selections:
+        clean_selections.append({
+            "eventId":   s.get("eventId"),
+            "marketId":  s.get("marketId"),
+            "outcomeId": s.get("outcomeId"),
+            "specifier": s.get("specifier", "")
+        })
+    payload = {"selections": clean_selections, "stake": 1000}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -369,7 +378,6 @@ async def create_sportybet_code(selections):
                 biz_code = data.get("bizCode")
                 if biz_code == 10000:
                     return data.get("data", {}).get("shareCode", "")
-                # FIX 1: Log specific failure reason for debugging
                 print("SportyBet code gen failed — bizCode: " + str(biz_code) + " | msg: " + str(data.get("message", "")))
                 return ""
     except Exception as e:
