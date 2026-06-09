@@ -32,11 +32,12 @@ FOOTBALL_API_URL    = "https://sports.bzzoiro.com/api"
 APIFOOTBALL_KEY     = os.getenv("APIFOOTBALL_KEY")
 APIFOOTBALL_URL     = "https://v3.football.api-sports.io"
 
-SPORTYBET_COOKIES = "_ntes_nnid=c0a483ee57ef99619953b430898d0691; device-id=9d5a43cd-d116-4d75-9170-b7af46384a9a; sb_country=ng; deviceId=260607231024bdid03738532; usrId=260607231024pdid03738533"
+# FIX 1: Move cookies to env variable with fallback
+SPORTYBET_COOKIES   = os.getenv("SPORTYBET_COOKIES", "")
 
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 user_history = {}
-user_code_data = {}  # Store raw selections per user
+user_code_data = {}
 
 SYSTEM_PROMPT = """You are SportyBot AI, an elite sports betting analyst for Nigerian bettors. You have access to real live football data including fixtures, odds, form, and head to head stats.
 
@@ -201,8 +202,23 @@ async def get_team_id(team_name):
     return None, None
 
 
-async def get_team_form(team_id, team_name):
-    season = datetime.now().year if datetime.now().month >= 8 else datetime.now().year - 1
+def get_season_for_league(league_country=""):
+    """
+    FIX 2: Smarter season detection.
+    Jan-Dec leagues (Brazil, USA, Nigeria, Ghana etc.) always use current year.
+    Aug-May leagues (Europe) use year-1 if we're before August.
+    """
+    jan_dec_countries = {"brazil", "usa", "nigeria", "ghana", "south africa", "kenya",
+                         "egypt", "mexico", "japan", "south korea", "australia", "mls"}
+    country_lower = league_country.lower()
+    if any(c in country_lower for c in jan_dec_countries):
+        return datetime.now().year
+    # European / Aug-May leagues
+    return datetime.now().year if datetime.now().month >= 8 else datetime.now().year - 1
+
+
+async def get_team_form(team_id, team_name, league_country=""):
+    season = get_season_for_league(league_country)
     fixtures = await apifootball_get("/fixtures", "team=" + str(team_id) + "&season=" + str(season))
     completed = [f for f in fixtures if f["fixture"]["status"]["short"] == "FT"]
     last5 = completed[-5:]
@@ -219,14 +235,11 @@ async def get_team_form(team_id, team_name):
         is_home = home == team_name
         gf, ga = (hg, ag) if is_home else (ag, hg)
         if gf > ga:
-            result = "W"
-            wins += 1
+            result = "W"; wins += 1
         elif gf == ga:
-            result = "D"
-            draws += 1
+            result = "D"; draws += 1
         else:
-            result = "L"
-            losses += 1
+            result = "L"; losses += 1
         goals_for += gf
         goals_against += ga
         lines.append(result + " | " + date + ": " + home + " " + str(hg) + "-" + str(ag) + " " + away)
@@ -236,7 +249,7 @@ async def get_team_form(team_id, team_name):
 
 
 async def get_h2h(team1_id, team2_id, team1_name, team2_name):
-    season = datetime.now().year if datetime.now().month >= 8 else datetime.now().year - 1
+    season = get_season_for_league()
     fixtures = await apifootball_get("/fixtures/headtohead", "h2h=" + str(team1_id) + "-" + str(team2_id) + "&season=" + str(season))
     if not fixtures:
         return "No H2H data found for this season"
@@ -250,17 +263,13 @@ async def get_h2h(team1_id, team2_id, team1_name, team2_name):
         date = f["fixture"]["date"][:10]
         lines.append(date + ": " + home + " " + str(hg) + "-" + str(ag) + " " + away)
         if hg > ag:
-            if home == team1_name:
-                t1_wins += 1
-            else:
-                t2_wins += 1
+            if home == team1_name: t1_wins += 1
+            else: t2_wins += 1
         elif hg == ag:
             draws += 1
         else:
-            if away == team1_name:
-                t1_wins += 1
-            else:
-                t2_wins += 1
+            if away == team1_name: t1_wins += 1
+            else: t2_wins += 1
     lines.append(team1_name + " wins: " + str(t1_wins))
     lines.append(team2_name + " wins: " + str(t2_wins))
     lines.append("Draws: " + str(draws))
@@ -340,6 +349,10 @@ async def ask_ai(user_message, history):
 
 async def create_sportybet_code(selections):
     """Create a real SportyBet booking code from selections array"""
+    # FIX 1: Check cookies are available before attempting
+    if not SPORTYBET_COOKIES:
+        print("SPORTYBET_COOKIES env variable is not set — cannot generate code")
+        return ""
     url = "https://www.sportybet.com/api/ng/orders/share"
     hdrs = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
@@ -348,18 +361,19 @@ async def create_sportybet_code(selections):
         "Referer": "https://www.sportybet.com/ng/",
         "Cookie": SPORTYBET_COOKIES
     }
-    payload = {
-        "selections": selections,
-        "stake": 100000
-    }
+    payload = {"selections": selections, "stake": 100000}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 data = await resp.json(content_type=None)
-                if data.get("bizCode") == 10000:
+                biz_code = data.get("bizCode")
+                if biz_code == 10000:
                     return data.get("data", {}).get("shareCode", "")
-        return ""
-    except Exception:
+                # FIX 1: Log specific failure reason for debugging
+                print("SportyBet code gen failed — bizCode: " + str(biz_code) + " | msg: " + str(data.get("message", "")))
+                return ""
+    except Exception as e:
+        print("SportyBet code gen exception: " + str(e))
         return ""
 
 
@@ -376,13 +390,11 @@ async def try_fetch_sportybet(code):
                 if resp.status != 200:
                     return "", []
                 data = await resp.json(content_type=None)
-
         ticket_data = data.get("data", {})
         outcomes = ticket_data.get("outcomes", [])
         ticket = ticket_data.get("ticket", {})
         raw_selections = ticket.get("selections", [])
         display_odds = ticket.get("displayTotalOdds", "?")
-
         if outcomes:
             lines = ["Booking Code: " + code.upper(), "Bookie: SportyBet", "Total games: " + str(len(outcomes)), "", "Selections:"]
             for i, outcome in enumerate(outcomes, 1):
@@ -390,9 +402,7 @@ async def try_fetch_sportybet(code):
                 away = outcome.get("awayTeamName", "?")
                 tournament = outcome.get("sport", {}).get("category", {}).get("tournament", {}).get("name", "")
                 markets = outcome.get("markets", [])
-                market_name = ""
-                pick_name = ""
-                pick_odds = "?"
+                market_name = pick_name = pick_odds = "?"
                 if markets:
                     m = markets[0]
                     market_name = m.get("desc", "")
@@ -569,7 +579,6 @@ async def fetch_booking_code(code):
 
 
 def extract_kept_games(reply, pattern):
-    """Extract game numbers from Gemini reply e.g. KEPT_GAMES:[1,2,3]"""
     match = re.search(pattern + r':\[([0-9,\s]+)\]', reply)
     if match:
         nums = [int(x.strip()) for x in match.group(1).split(",") if x.strip().isdigit()]
@@ -577,17 +586,37 @@ def extract_kept_games(reply, pattern):
     return []
 
 
+# FIX 3: Expanded and improved stopword list to prevent false code detection
+CODE_STOPWORDS = {
+    "SPLIT","INTO","TICKET","TICKETS","SLIPS","ODDS","GAMES","MAKE","THIS",
+    "LOWER","TRIM","PICK","FROM","ANALYZE","CONVERT","SAFE","HAVE","CODE",
+    "HELP","START","CLEAR","BETKING","SPORTYBET","PARIPESA","BETPAWA",
+    "BETANO","1XBET","TIPS","TODAY","PREDICT","WHAT","WHO","WINS","BEST",
+    "LIVE","SCORES","TOMORROW","FIXTURES","BANKER","BUILD","OVER","UNDER",
+    "AROUND","ABOUT","REDUCE","CHANGE","GIVE","SEND","SHOW","LIST",
+    # Common betting/football terms that look like codes
+    "BTTS","SCORE","PICKS","GOALS","CARDS","CORNER","CORNERS","HALF",
+    "TIME","DRAW","HOME","AWAY","BOTH","TEAMS","FIRST","SECOND","THIRD",
+    "HIGH","SURE","GOOD","NICE","GREAT","NEED","WANT","WILL","WITH","THAT",
+    "THEY","THEIR","WHEN","WHERE","WHICH","YOUR","MINE","JUST","ALSO",
+    "MORE","LESS","SOME","MANY","MUCH","VERY","NEXT","LAST","EACH","ONLY",
+    "BACK","FULL","HALF","LATE","FAST","LONG","BEEN","MAKE","TAKE","KEEP",
+    "PLAY","FORM","TEAM","PASS","SHOT","KICK","GOAL","BALL","MATCH","GAME",
+    "REAL","FAKE","TRUE","FORM","LOSS","WINS","DREW","BEAT","LOST","FELL",
+    # Time words
+    "TODAY","TONIGHT","TOMORROW","WEEKLY","DAILY","NIGHT","EARLY","LATER",
+    # Common team names (prevent treating them as booking codes)
+    "ARSENAL","CHELSEA","UNITED","CITY","VILLA","MILAN","INTER","PARIS",
+    "PORTO","BENFICA","CELTIC","RANGERS","RIVER","BOCA","FLAMENGO","LAZIO",
+    "JUVENTUS","TOTTENHAM","EVERTON","FULHAM","WOLVES","LEEDS","BURNLEY",
+    "TIGERS","EAGLES","SAINTS","KINGS","LIONS","BEARS","HAWKS","WASPS",
+    "SUPER","LUCKY","SOUTH","NORTH","WEST","EAST","WOULD","COULD","SHOULD",
+    "MIGHT","SHALL","EVERY","THESE","THOSE","THEIR","THERE","WHERE","WHILE"
+}
+
 def extract_code(text):
-    stopwords = {
-        "SPLIT","INTO","TICKET","TICKETS","SLIPS","ODDS","GAMES","MAKE","THIS",
-        "LOWER","TRIM","PICK","FROM","ANALYZE","CONVERT","SAFE","HAVE","CODE",
-        "HELP","START","CLEAR","BETKING","SPORTYBET","PARIPESA","BETPAWA",
-        "BETANO","1XBET","TIPS","TODAY","PREDICT","WHAT","WHO","WINS","BEST",
-        "LIVE","SCORES","TOMORROW","FIXTURES","BANKER","BUILD","OVER","UNDER",
-        "AROUND","ABOUT","REDUCE","CHANGE","GIVE","SEND","SHOW","LIST"
-    }
     for m in re.findall(r"\b[A-Z0-9]{5,8}\b", text.upper()):
-        if m not in stopwords and not m.isdigit():
+        if m not in CODE_STOPWORDS and not m.isdigit():
             return m
     return None
 
@@ -638,7 +667,7 @@ async def process_message(user_number, text):
     if text_lower == "clear":
         user_history[user_number] = []
         user_code_data.pop(user_number, None)
-        return "Chat history cleared!"
+        return "Chat history cleared! ✅"
 
     if text_lower.startswith("h2h ") and " vs " in text_lower:
         teams = text_lower[4:].strip()
@@ -698,38 +727,40 @@ async def process_message(user_number, text):
 
     reply = await ask_ai(text + extra_context, history)
 
-    # Check if Gemini wants to generate a real SportyBet code
+    # FIX 1: Handle KEPT_GAMES for trim — clean up the marker before sending
     raw_selections = user_code_data.get(user_number, [])
     if raw_selections and "KEPT_GAMES:" in reply:
         kept_nums = extract_kept_games(reply, "KEPT_GAMES")
+        # Always strip the marker from the reply first
+        reply = re.sub(r'KEPT_GAMES:\[[0-9,\s]+\]', '', reply).strip()
         if kept_nums:
             kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
             if kept_selections:
                 new_code = await create_sportybet_code(kept_selections)
-                reply = re.sub(r'KEPT_GAMES:\[[0-9,\s]+\]', '', reply).strip()
                 if new_code:
-                    reply = "?? Your new SportyBet code: *" + new_code + "*
-
----
-
-" + reply
+                    # FIX 1: Proper string with correct emoji and newlines
+                    reply = "\U0001F3AB Your new SportyBet code: *" + new_code + "*\n\n---\n\n" + reply
                 else:
-                    reply += "\n\n⚠️ Could not generate code automatically. Please book these games manually on SportyBet."
+                    reply += "\n\n\u26A0\uFE0F Could not auto-generate code. Please book these games manually on SportyBet."
 
-    # Handle split with multiple slips
+    # FIX 1: Handle SLIP_N_GAMES for split — same clean-up pattern
     if raw_selections and "SLIP_1_GAMES:" in reply:
         slip_num = 1
         while "SLIP_" + str(slip_num) + "_GAMES:" in reply:
             kept_nums = extract_kept_games(reply, "SLIP_" + str(slip_num) + "_GAMES")
+            pattern = r"SLIP_" + str(slip_num) + r"_GAMES:\[[0-9,\s]+\]"
             if kept_nums:
                 kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
                 if kept_selections:
                     new_code = await create_sportybet_code(kept_selections)
-                    pattern = "SLIP_" + str(slip_num) + r"_GAMES:\[[0-9,\s]+\]"
                     if new_code:
-                        reply = re.sub(pattern, "📌 Slip " + str(slip_num) + " Code: *" + new_code + "*", reply)
+                        reply = re.sub(pattern, "\U0001F4CC Slip " + str(slip_num) + " Code: *" + new_code + "*", reply)
                     else:
-                        reply = re.sub(pattern, "⚠️ Could not generate slip " + str(slip_num) + " code automatically.", reply)
+                        reply = re.sub(pattern, "\u26A0\uFE0F Could not generate slip " + str(slip_num) + " code automatically.", reply)
+                else:
+                    reply = re.sub(pattern, "", reply)
+            else:
+                reply = re.sub(pattern, "", reply)
             slip_num += 1
 
     history.append({"role": "user", "content": text})
@@ -750,7 +781,7 @@ def send_whatsapp_message(to, message):
         else:
             twilio_client.messages.create(from_=from_num, body=message, to=to_num)
     except Exception as e:
-        print("\n TWILIO SEND ERROR: " + str(e) + "\n")
+        print("\nTWILIO SEND ERROR: " + str(e) + "\n")
 
 
 @app.route("/webhook", methods=["POST"])
