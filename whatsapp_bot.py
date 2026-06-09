@@ -417,7 +417,8 @@ async def create_bet9ja_code(selections):
     evs = {}
     for s in selections:
         key = str(s.get("E_ID", "")) + "$" + s.get("sid", "")
-        odds[key] = str(s.get("V", ""))
+        odd_val = str(s.get("V", "1.0"))
+        odds[key] = odd_val
         evs[key] = {
             "id": key,
             "eventId": s.get("E_ID"),
@@ -430,7 +431,7 @@ async def create_bet9ja_code(selections):
             "leagueName": s.get("GN", ""),
             "SG": "International",
             "startdate": s.get("STARTDATE", "").replace("-", "/"),
-            "oddValue": str(s.get("V", "")),
+            "oddValue": odd_val,
             "hnd": "",
             "sportName": ""
         }
@@ -534,7 +535,8 @@ async def try_fetch_bet9ja(code):
         # Build raw_selections for code generation
         raw_selections = []
         for i, (key, bet) in enumerate(outcomes.items(), 1):
-            odds = float(bet.get("OD", 1))
+            odds = float(bet.get("V", bet.get("OD", 1)))
+            print("BET9JA ODDS DEBUG: key=" + key + " V=" + str(bet.get("V")) + " OD=" + str(bet.get("OD")) + " used=" + str(odds))
             total_odds *= odds
             name = bet.get("E_NAME", "?")
             market = bet.get("MN", "")
@@ -549,7 +551,7 @@ async def try_fetch_bet9ja(code):
                 "M_NAME": market,
                 "SGN": bet.get("SGN", ""),
                 "sid": sid,
-                "V": str(bet.get("OD", bet.get("V", odds))),
+                "V": str(odds),  # odds already computed from OD field above
                 "GN": bet.get("GN", ""),
                 "STARTDATE": bet.get("STARTDATE", ""),
                 "SPORT_ID": bet.get("SPORT_ID", 1),
