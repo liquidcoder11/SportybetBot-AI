@@ -549,7 +549,7 @@ async def try_fetch_bet9ja(code):
                 "M_NAME": market,
                 "SGN": bet.get("SGN", ""),
                 "sid": sid,
-                "V": str(odds),
+                "V": str(bet.get("OD", bet.get("V", odds))),
                 "GN": bet.get("GN", ""),
                 "STARTDATE": bet.get("STARTDATE", ""),
                 "SPORT_ID": bet.get("SPORT_ID", 1),
@@ -857,6 +857,8 @@ async def process_message(user_number, text):
     if raw_selections and "KEPT_GAMES:" in reply:
         kept_nums = extract_kept_games(reply, "KEPT_GAMES")
         reply = re.sub(r'KEPT_GAMES:\[[0-9,\s]+\]', '', reply).strip()
+        reply = re.sub(r'📌 Generating your new \w+ code\.\.\.\s*', '', reply).strip()
+        reply = re.sub(r'📌 Generating your new SportyBet code\.\.\.\s*', '', reply).strip()
         if kept_nums:
             kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
             if kept_selections:
@@ -872,6 +874,7 @@ async def process_message(user_number, text):
         while "SLIP_" + str(slip_num) + "_GAMES:" in reply:
             kept_nums = extract_kept_games(reply, "SLIP_" + str(slip_num) + "_GAMES")
             pattern = r"SLIP_" + str(slip_num) + r"_GAMES:\[[0-9,\s]+\]"
+            reply = re.sub(r'📌 Generating Slip ' + str(slip_num) + r' code\.\.\.\s*', '', reply).strip()
             if kept_nums:
                 kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
                 if kept_selections:
