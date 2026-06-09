@@ -388,7 +388,13 @@ async def create_sportybet_code(selections):
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 print("SportyBet HTTP Status: " + str(resp.status))
-                data = await resp.json(content_type=None)
+                raw_text = await resp.text()
+                print("SportyBet Raw Response: " + raw_text[:500])
+                try:
+                    data = json.loads(raw_text)
+                except Exception as je:
+                    print("JSON PARSE ERROR: " + str(je))
+                    return ""
                 print("SportyBet Full Response: " + str(data))
                 biz_code = data.get("bizCode")
                 if biz_code == 10000:
