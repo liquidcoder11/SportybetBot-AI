@@ -408,6 +408,68 @@ async def create_sportybet_code(selections):
         return ""
 
 
+async def create_bet9ja_code(selections):
+    """Create a real Bet9ja booking code from raw selections"""
+    print("\n--- ATTEMPTING TO GENERATE BET9JA CODE FOR " + str(len(selections)) + " GAMES ---")
+    import urllib.parse
+
+    odds = {}
+    evs = {}
+    for s in selections:
+        key = str(s.get("E_ID", "")) + "$" + s.get("sid", "")
+        odds[key] = str(s.get("V", ""))
+        evs[key] = {
+            "id": key,
+            "eventId": s.get("E_ID"),
+            "eventCode": s.get("E_C", ""),
+            "eventName": s.get("E_NAME", ""),
+            "market": s.get("M_NAME", "1X2"),
+            "sid": s.get("sid", ""),
+            "sign": s.get("SGN", ""),
+            "GN": s.get("GN", ""),
+            "leagueName": s.get("GN", ""),
+            "SG": "International",
+            "startdate": s.get("STARTDATE", "").replace("-", "/"),
+            "oddValue": str(s.get("V", "")),
+            "hnd": "",
+            "sportName": ""
+        }
+
+    num_games = len(selections)
+    betslip = {
+        "BETS": [{"BSTYPE": 0, "TAB": 0, "NUMLINES": num_games, "COMB": 1,
+                  "TYPE": num_games, "STAKE": 0, "ODDS": odds, "FIXED": {}}],
+        "EVS": evs,
+        "IMPERSONIZE": 0
+    }
+
+    body = "BETSLIP=" + urllib.parse.quote(json.dumps(betslip)) + "&IS_PASSBET=0"
+    url = "https://apigw.bet9ja.com/sportsbook/placebet/BookABetV2?source=desktop&v_cache_version=1.315.6.236"
+    hdrs = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": "https://sports.bet9ja.com",
+        "Referer": "https://sports.bet9ja.com/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=body, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                print("Bet9ja HTTP Status: " + str(resp.status))
+                raw_text = await resp.text()
+                print("Bet9ja Raw Response: " + raw_text[:300])
+                data = json.loads(raw_text)
+                if data.get("status") == 1:
+                    code = data.get("data", [{}])[0].get("RIS", "")
+                    print("SUCCESS! Bet9ja Code: " + code)
+                    return code
+                print("Bet9ja FAILED: " + str(data.get("error", "")))
+                return ""
+    except Exception as e:
+        print("Bet9ja code gen error: " + str(e))
+        return ""
+
+
 async def try_fetch_sportybet(code):
     url = "https://www.sportybet.com/api/ng/orders/share/" + code.upper()
     hdrs = {
@@ -469,6 +531,8 @@ async def try_fetch_bet9ja(code):
             return "", []
         lines = ["Booking Code: " + code.upper(), "Bookie: Bet9ja", "Total games: " + str(len(outcomes)), "", "Selections:"]
         total_odds = 1.0
+        # Build raw_selections for code generation
+        raw_selections = []
         for i, (key, bet) in enumerate(outcomes.items(), 1):
             odds = float(bet.get("OD", 1))
             total_odds *= odds
@@ -476,8 +540,23 @@ async def try_fetch_bet9ja(code):
             market = bet.get("MN", "")
             pick = bet.get("ON", "")
             lines.append(str(i) + ". " + name + " | " + market + " - " + pick + " @ " + str(odds))
+            # Store raw selection data for code generation
+            sid = key.split("$")[1] if "$" in key else key
+            raw_selections.append({
+                "E_ID": bet.get("E_ID"),
+                "E_C": bet.get("E_C", ""),
+                "E_NAME": name,
+                "M_NAME": market,
+                "SGN": bet.get("SGN", ""),
+                "sid": sid,
+                "V": str(odds),
+                "GN": bet.get("GN", ""),
+                "STARTDATE": bet.get("STARTDATE", ""),
+                "SPORT_ID": bet.get("SPORT_ID", 1),
+                "_bookie": "bet9ja"
+            })
         lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
-        return "\n".join(lines), []
+        return "\n".join(lines), raw_selections
     except Exception:
         return "", []
 
@@ -758,23 +837,36 @@ async def process_message(user_number, text):
 
     reply = await ask_ai(text + extra_context, history)
 
-    # FIX 1: Handle KEPT_GAMES for trim — clean up the marker before sending
+    # Detect bookie from raw selections and use correct code generator
     raw_selections = user_code_data.get(user_number, [])
+
+    async def generate_code(selections):
+        if not selections:
+            return ""
+        bookie = selections[0].get("_bookie", "sportybet")
+        if bookie == "bet9ja":
+            return await create_bet9ja_code(selections)
+        return await create_sportybet_code(selections)
+
+    def bookie_label(selections):
+        if not selections:
+            return "SportyBet"
+        bookie = selections[0].get("_bookie", "sportybet")
+        return {"bet9ja": "Bet9ja", "betking": "BetKing", "betpawa": "Betpawa"}.get(bookie, "SportyBet")
+
     if raw_selections and "KEPT_GAMES:" in reply:
         kept_nums = extract_kept_games(reply, "KEPT_GAMES")
-        # Always strip the marker from the reply first
         reply = re.sub(r'KEPT_GAMES:\[[0-9,\s]+\]', '', reply).strip()
         if kept_nums:
             kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
             if kept_selections:
-                new_code = await create_sportybet_code(kept_selections)
+                new_code = await generate_code(kept_selections)
+                label = bookie_label(kept_selections)
                 if new_code:
-                    # FIX 1: Proper string with correct emoji and newlines
-                    reply = "\U0001F3AB Your new SportyBet code: *" + new_code + "*\n\n---\n\n" + reply
+                    reply = "\U0001F3AB Your new " + label + " code: *" + new_code + "*\n\n---\n\n" + reply
                 else:
-                    reply += "\n\n\u26A0\uFE0F Could not auto-generate code. Please book these games manually on SportyBet."
+                    reply += "\n\n\u26A0\uFE0F Could not auto-generate code. Please book these games manually on " + label + "."
 
-    # FIX 1: Handle SLIP_N_GAMES for split — same clean-up pattern
     if raw_selections and "SLIP_1_GAMES:" in reply:
         slip_num = 1
         while "SLIP_" + str(slip_num) + "_GAMES:" in reply:
@@ -783,11 +875,12 @@ async def process_message(user_number, text):
             if kept_nums:
                 kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
                 if kept_selections:
-                    new_code = await create_sportybet_code(kept_selections)
+                    new_code = await generate_code(kept_selections)
+                    label = bookie_label(kept_selections)
                     if new_code:
-                        reply = re.sub(pattern, "\U0001F4CC Slip " + str(slip_num) + " Code: *" + new_code + "*", reply)
+                        reply = re.sub(pattern, "\U0001F4CC Slip " + str(slip_num) + " Code (" + label + "): *" + new_code + "*", reply)
                     else:
-                        reply = re.sub(pattern, "\u26A0\uFE0F Could not generate slip " + str(slip_num) + " code automatically.", reply)
+                        reply = re.sub(pattern, "\u26A0\uFE0F Could not generate slip " + str(slip_num) + " code for " + label + ".", reply)
                 else:
                     reply = re.sub(pattern, "", reply)
             else:
