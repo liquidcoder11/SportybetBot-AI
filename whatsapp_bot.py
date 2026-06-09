@@ -361,16 +361,18 @@ async def create_sportybet_code(selections):
         "Cookie": SPORTYBET_COOKIES,
         "platform": "web"
     }
-    # Strip selections down to only what SportyBet needs — extra fields cause rejection
+    # Keep only the fields SportyBet needs — must include productId and sportId
     clean_selections = []
     for s in selections:
         clean_selections.append({
             "eventId":   s.get("eventId"),
             "marketId":  s.get("marketId"),
             "outcomeId": s.get("outcomeId"),
-            "specifier": s.get("specifier", "")
+            "specifier": s.get("specifier", ""),
+            "productId": s.get("productId", 3),
+            "sportId":   s.get("sportId", "sr:sport:1")
         })
-    payload = {"selections": clean_selections, "stake": 1000}
+    payload = {"selections": clean_selections, "stake": 100000}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
