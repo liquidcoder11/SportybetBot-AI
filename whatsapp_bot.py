@@ -31,8 +31,6 @@ FOOTBALL_API_KEY    = os.getenv("FOOTBALL_API_KEY")
 FOOTBALL_API_URL    = "https://sports.bzzoiro.com/api"
 APIFOOTBALL_KEY     = os.getenv("APIFOOTBALL_KEY")
 APIFOOTBALL_URL     = "https://v3.football.api-sports.io"
-
-# FIX 1: Move cookies to env variable with fallback
 SPORTYBET_COOKIES   = os.getenv("SPORTYBET_COOKIES", "")
 
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
@@ -203,17 +201,11 @@ async def get_team_id(team_name):
 
 
 def get_season_for_league(league_country=""):
-    """
-    FIX 2: Smarter season detection.
-    Jan-Dec leagues (Brazil, USA, Nigeria, Ghana etc.) always use current year.
-    Aug-May leagues (Europe) use year-1 if we're before August.
-    """
     jan_dec_countries = {"brazil", "usa", "nigeria", "ghana", "south africa", "kenya",
                          "egypt", "mexico", "japan", "south korea", "australia", "mls"}
     country_lower = league_country.lower()
     if any(c in country_lower for c in jan_dec_countries):
         return datetime.now().year
-    # European / Aug-May leagues
     return datetime.now().year if datetime.now().month >= 8 else datetime.now().year - 1
 
 
@@ -348,15 +340,10 @@ async def ask_ai(user_message, history):
 
 
 async def create_sportybet_code(selections):
-    """Create a real SportyBet booking code from selections array"""
     print("\n--- ATTEMPTING TO GENERATE CODE FOR " + str(len(selections)) + " GAMES ---")
-
     if not SPORTYBET_COOKIES:
         print("WARNING: SPORTYBET_COOKIES not set — attempting anonymous booking...")
-
-    # Log raw selections for debugging
     print("RAW SELECTIONS SAMPLE: " + str(selections[0] if selections else "EMPTY"))
-
     url = "https://www.sportybet.com/api/ng/orders/share"
     hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
@@ -368,8 +355,6 @@ async def create_sportybet_code(selections):
     }
     if SPORTYBET_COOKIES:
         hdrs["Cookie"] = SPORTYBET_COOKIES
-
-    # Keep only the fields SportyBet needs — must include productId and sportId
     clean_selections = []
     for s in selections:
         clean_selections.append({
@@ -380,10 +365,8 @@ async def create_sportybet_code(selections):
             "productId": s.get("productId", 3),
             "sportId":   s.get("sportId", "sr:sport:1")
         })
-
     print("CLEAN SELECTIONS SAMPLE: " + str(clean_selections[0] if clean_selections else "EMPTY"))
     payload = {"selections": clean_selections, "stake": 100000}
-
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -409,10 +392,8 @@ async def create_sportybet_code(selections):
 
 
 async def create_bet9ja_code(selections):
-    """Create a real Bet9ja booking code from raw selections"""
     print("\n--- ATTEMPTING TO GENERATE BET9JA CODE FOR " + str(len(selections)) + " GAMES ---")
     import urllib.parse
-
     odds = {}
     evs = {}
     for s in selections:
@@ -435,7 +416,6 @@ async def create_bet9ja_code(selections):
             "hnd": "",
             "sportName": ""
         }
-
     num_games = len(selections)
     betslip = {
         "BETS": [{"BSTYPE": 0, "TAB": 0, "NUMLINES": num_games, "COMB": 1,
@@ -443,7 +423,6 @@ async def create_bet9ja_code(selections):
         "EVS": evs,
         "IMPERSONIZE": 0
     }
-
     body = "BETSLIP=" + urllib.parse.quote(json.dumps(betslip)) + "&IS_PASSBET=0"
     url = "https://apigw.bet9ja.com/sportsbook/placebet/BookABetV2?source=desktop&v_cache_version=1.315.6.236"
     hdrs = {
@@ -468,6 +447,46 @@ async def create_bet9ja_code(selections):
                 return ""
     except Exception as e:
         print("Bet9ja code gen error: " + str(e))
+        return ""
+
+
+async def create_betpawa_code(selections):
+    print("\n--- ATTEMPTING TO GENERATE BETPAWA CODE FOR " + str(len(selections)) + " GAMES ---")
+    url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Origin": "https://www.betpawa.ng",
+        "Referer": "https://www.betpawa.ng/",
+        "X-Pawa-Brand": "betpawa-nigeria",
+        "X-Pawa-Language": "en",
+        "deviceType": "web"
+    }
+    body = {
+        "selections": {
+            "selections": [
+                {"type": "SINGLE", "selections": [s.get("selection_id")]}
+                for s in selections
+            ]
+        }
+    }
+    print("Betpawa payload: " + str(body))
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=body, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                print("Betpawa HTTP Status: " + str(resp.status))
+                raw_text = await resp.text()
+                print("Betpawa Raw Response: " + raw_text[:300])
+                data = json.loads(raw_text)
+                code = data.get("code", "")
+                if code:
+                    print("SUCCESS! Betpawa Code: " + code)
+                    return code
+                print("Betpawa FAILED: " + str(data))
+                return ""
+    except Exception as e:
+        print("Betpawa code gen error: " + str(e))
         return ""
 
 
@@ -532,7 +551,6 @@ async def try_fetch_bet9ja(code):
             return "", []
         lines = ["Booking Code: " + code.upper(), "Bookie: Bet9ja", "Total games: " + str(len(outcomes)), "", "Selections:"]
         total_odds = 1.0
-        # Build raw_selections for code generation
         raw_selections = []
         for i, (key, bet) in enumerate(outcomes.items(), 1):
             odds = float(bet.get("V", bet.get("OD", 1)))
@@ -542,7 +560,6 @@ async def try_fetch_bet9ja(code):
             market = bet.get("MN", "")
             pick = bet.get("ON", "")
             lines.append(str(i) + ". " + name + " | " + market + " - " + pick + " @ " + str(odds))
-            # Store raw selection data for code generation
             sid = key.split("$")[1] if "$" in key else key
             raw_selections.append({
                 "E_ID": bet.get("E_ID"),
@@ -551,7 +568,7 @@ async def try_fetch_bet9ja(code):
                 "M_NAME": market,
                 "SGN": bet.get("SGN", ""),
                 "sid": sid,
-                "V": str(odds),  # odds already computed from OD field above
+                "V": str(odds),
                 "GN": bet.get("GN", ""),
                 "STARTDATE": bet.get("STARTDATE", ""),
                 "SPORT_ID": bet.get("SPORT_ID", 1),
@@ -619,6 +636,7 @@ async def try_fetch_betpawa(code):
             return "", []
         lines = ["Booking Code: " + code.upper(), "Bookie: Betpawa", "Total games: " + str(len(items)), "", "Selections:"]
         total_odds = 1.0
+        raw_selections = []
         for i, item in enumerate(items, 1):
             odds = float(item.get("odds", 1))
             total_odds *= odds
@@ -628,8 +646,12 @@ async def try_fetch_betpawa(code):
             market = item.get("marketName", "")
             pick = item.get("outcomeName", "")
             lines.append(str(i) + ". " + home + " vs " + away + " | " + market + " - " + pick + " @ " + str(odds))
+            raw_selections.append({
+                "selection_id": item.get("id") or item.get("selectionId") or item.get("outcomeId"),
+                "_bookie": "betpawa"
+            })
         lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
-        return "\n".join(lines), []
+        return "\n".join(lines), raw_selections
     except Exception:
         return "", []
 
@@ -698,7 +720,6 @@ def extract_kept_games(reply, pattern):
     return []
 
 
-# FIX 3: Expanded and improved stopword list to prevent false code detection
 CODE_STOPWORDS = {
     "SPLIT","INTO","TICKET","TICKETS","SLIPS","ODDS","GAMES","MAKE","THIS",
     "LOWER","TRIM","PICK","FROM","ANALYZE","CONVERT","SAFE","HAVE","CODE",
@@ -706,7 +727,6 @@ CODE_STOPWORDS = {
     "BETANO","1XBET","TIPS","TODAY","PREDICT","WHAT","WHO","WINS","BEST",
     "LIVE","SCORES","TOMORROW","FIXTURES","BANKER","BUILD","OVER","UNDER",
     "AROUND","ABOUT","REDUCE","CHANGE","GIVE","SEND","SHOW","LIST",
-    # Common betting/football terms that look like codes
     "BTTS","SCORE","PICKS","GOALS","CARDS","CORNER","CORNERS","HALF",
     "TIME","DRAW","HOME","AWAY","BOTH","TEAMS","FIRST","SECOND","THIRD",
     "HIGH","SURE","GOOD","NICE","GREAT","NEED","WANT","WILL","WITH","THAT",
@@ -715,9 +735,7 @@ CODE_STOPWORDS = {
     "BACK","FULL","HALF","LATE","FAST","LONG","BEEN","MAKE","TAKE","KEEP",
     "PLAY","FORM","TEAM","PASS","SHOT","KICK","GOAL","BALL","MATCH","GAME",
     "REAL","FAKE","TRUE","FORM","LOSS","WINS","DREW","BEAT","LOST","FELL",
-    # Time words
     "TODAY","TONIGHT","TOMORROW","WEEKLY","DAILY","NIGHT","EARLY","LATER",
-    # Common team names (prevent treating them as booking codes)
     "ARSENAL","CHELSEA","UNITED","CITY","VILLA","MILAN","INTER","PARIS",
     "PORTO","BENFICA","CELTIC","RANGERS","RIVER","BOCA","FLAMENGO","LAZIO",
     "JUVENTUS","TOTTENHAM","EVERTON","FULHAM","WOLVES","LEEDS","BURNLEY",
@@ -839,7 +857,6 @@ async def process_message(user_number, text):
 
     reply = await ask_ai(text + extra_context, history)
 
-    # Detect bookie from raw selections and use correct code generator
     raw_selections = user_code_data.get(user_number, [])
 
     async def generate_code(selections):
@@ -848,6 +865,10 @@ async def process_message(user_number, text):
         bookie = selections[0].get("_bookie", "sportybet")
         if bookie == "bet9ja":
             return await create_bet9ja_code(selections)
+        if bookie == "betking":
+            return await create_betking_code(selections)
+        if bookie == "betpawa":
+            return await create_betpawa_code(selections)
         return await create_sportybet_code(selections)
 
     def bookie_label(selections):
