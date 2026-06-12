@@ -730,4 +730,286 @@ async def try_fetch_footballcom(code):
             for i, outcome in enumerate(outcomes, 1):
                 home = outcome.get("homeTeamName", "?")
                 away = outcome.get("awayTeamName", "?")
-                tournament = outcome.get("sport", {}).get
+                                tournament = outcome.get("sport", {}).get("category", {}).get("tournament", {}).get("name", "")
+                markets = outcome.get("markets", [])
+                market_name = pick_name = pick_odds = "?"
+                if markets:
+                    m = markets[0]
+                    market_name = m.get("desc", "")
+                    outcomes_list = m.get("outcomes", [])
+                    if outcomes_list:
+                        pick_name = outcomes_list[0].get("desc", "")
+                        pick_odds = str(outcomes_list[0].get("odds", "?"))
+                lines.append(str(i) + ". " + home + " vs " + away + " | " + tournament + " | " + market_name + " - " + pick_name + " @ " + pick_odds)
+            lines.append("Combined Odds: " + display_odds + "x")
+            return "\n".join(lines), raw_selections
+        return "", []
+    except Exception:
+        return "", []
+
+
+async def fetch_booking_code(code):
+    fetchers = [
+        try_fetch_sportybet,
+        try_fetch_bet9ja,
+        try_fetch_betking,
+        try_fetch_betpawa,
+        try_fetch_footballcom,
+    ]
+    for fetcher in fetchers:
+        result, selections = await fetcher(code)
+        if result:
+            return result, selections
+    return "", []
+
+
+def extract_kept_games(reply, pattern):
+    match = re.search(pattern + r':\[([0-9,\s]+)\]', reply)
+    if match:
+        nums = [int(x.strip()) for x in match.group(1).split(",") if x.strip().isdigit()]
+        return nums
+    return []
+
+
+CODE_STOPWORDS = {
+    "SPLIT","INTO","TICKET","TICKETS","SLIPS","ODDS","GAMES","MAKE","THIS",
+    "LOWER","TRIM","PICK","FROM","ANALYZE","CONVERT","SAFE","HAVE","CODE",
+    "HELP","START","CLEAR","BETKING","SPORTYBET","PARIPESA","BETPAWA",
+    "BETANO","1XBET","TIPS","TODAY","PREDICT","WHAT","WHO","WINS","BEST",
+    "LIVE","SCORES","TOMORROW","FIXTURES","BANKER","BUILD","OVER","UNDER",
+    "AROUND","ABOUT","REDUCE","CHANGE","GIVE","SEND","SHOW","LIST",
+    "BTTS","SCORE","PICKS","GOALS","CARDS","CORNER","CORNERS","HALF",
+    "TIME","DRAW","HOME","AWAY","BOTH","TEAMS","FIRST","SECOND","THIRD",
+    "HIGH","SURE","GOOD","NICE","GREAT","NEED","WANT","WILL","WITH","THAT",
+    "THEY","THEIR","WHEN","WHERE","WHICH","YOUR","MINE","JUST","ALSO",
+    "MORE","LESS","SOME","MANY","MUCH","VERY","NEXT","LAST","EACH","ONLY",
+    "BACK","FULL","HALF","LATE","FAST","LONG","BEEN","MAKE","TAKE","KEEP",
+    "PLAY","FORM","TEAM","PASS","SHOT","KICK","GOAL","BALL","MATCH","GAME",
+    "REAL","FAKE","TRUE","FORM","LOSS","WINS","DREW","BEAT","LOST","FELL",
+    "TODAY","TONIGHT","TOMORROW","WEEKLY","DAILY","NIGHT","EARLY","LATER",
+    "ARSENAL","CHELSEA","UNITED","CITY","VILLA","MILAN","INTER","PARIS",
+    "PORTO","BENFICA","CELTIC","RANGERS","RIVER","BOCA","FLAMENGO","LAZIO",
+    "JUVENTUS","TOTTENHAM","EVERTON","FULHAM","WOLVES","LEEDS","BURNLEY",
+    "TIGERS","EAGLES","SAINTS","KINGS","LIONS","BEARS","HAWKS","WASPS",
+    "SUPER","LUCKY","SOUTH","NORTH","WEST","EAST","WOULD","COULD","SHOULD",
+    "MIGHT","SHALL","EVERY","THESE","THOSE","THEIR","THERE","WHERE","WHILE"
+}
+
+def extract_code(text):
+    for m in re.findall(r"\b[A-Z0-9]{5,8}\b", text.upper()):
+        if m not in CODE_STOPWORDS and not m.isdigit():
+            return m
+    return None
+
+
+async def process_message(user_number, text):
+    if user_number not in user_history:
+        user_history[user_number] = []
+    history = user_history[user_number]
+    text_lower = text.lower().strip()
+    extra_context = ""
+
+    if text_lower in ["hi", "hello", "hey", "start", "menu"]:
+        return (
+            "👋 Welcome to SportyBot AI!\n\n"
+            "SportyBot AI helps you do all your betting work right here in chat — no more jumping between bookmakers, stats sites, and screenshots.\n\n"
+            "---\n\n"
+            "🤖 What I can do for you:\n\n"
+            "• Analyze & predict matches with real stats\n"
+            "• Build accumulators and safe picks\n"
+            "• Give you a banker of the day\n"
+            "• Split one slip into smaller slips\n"
+            "• Trim a ticket down to your target odds\n"
+            "• Convert tickets between bookmakers\n"
+            "• Read and analyze any booking code\n"
+            "• Research matches and suggest best picks\n\n"
+            "---\n\n"
+            "🚀 Best way to start:\n\n"
+            "Just send any one of these:\n"
+            "• A booking code (SportyBet, Bet9ja, BetKing, Betpawa)\n"
+            "• A match you want analyzed\n"
+            "• A simple instruction\n\n"
+            "---\n\n"
+            "💡 Try one of these:\n\n"
+            "• Split this code into 2 slips: ABC123\n"
+            "• Trim this ticket to around 20 odds\n"
+            "• Convert this Bet9ja code to SportyBet\n"
+            "• Analyze Arsenal vs Chelsea\n"
+            "• Give me 5 safe picks today\n"
+            "• Build me a 100 odds accumulator\n\n"
+            "---\n\n"
+            "📌 Tips for best results:\n\n"
+            "• Include your target odds when trimming\n"
+            "• Send the code together with your instruction\n"
+            "• Be specific about what you want changed\n\n"
+            "Type anything to get started! ⚽🔥"
+        )
+
+    if text_lower == "clear":
+        user_history[user_number] = []
+        user_code_data.pop(user_number, None)
+        return "Chat history cleared! ✅"
+
+    if text_lower.startswith("h2h ") and " vs " in text_lower:
+        teams = text_lower[4:].strip()
+        parts = teams.split(" vs ")
+        home = parts[0].strip().title()
+        away = parts[1].strip().title()
+        stats = await get_advanced_stats(home, away)
+        if stats:
+            prompt = "Real stats for " + home + " vs " + away + ":\n\n" + stats + "\n\nGive detailed prediction with form analysis, H2H, best market, confidence level. Format with emojis. No tables."
+            reply = await ask_ai(prompt, history)
+            history.append({"role": "user", "content": text})
+            history.append({"role": "assistant", "content": reply})
+            if len(history) > 20:
+                user_history[user_number] = history[-20:]
+            return reply
+        return "Could not find stats for " + home + " vs " + away + ". Check team names."
+
+    sports_keywords = ["predict", "tip", "pick", "safe", "sure", "banker", "accumulator",
+                       "acca", "today", "odds", "bet", "game", "match", "fixture",
+                       "win", "score", "goal", "over", "under", "btts", "double chance",
+                       "top", "best", "recommend", "analysis", "build", "create", "100",
+                       "trim", "split", "reduce", "convert", "change"]
+
+    needs_fixtures = any(k in text_lower for k in sports_keywords)
+    code = extract_code(text)
+
+    if "tomorrow" in text_lower:
+        fixtures = await get_tomorrows_fixtures()
+        extra_context = "\n\n[TOMORROW FIXTURES]\n" + fixtures + "\n[END]"
+    elif " vs " in text_lower and not code:
+        words = text.split()
+        home = away = ""
+        for i, w in enumerate(words):
+            if w.lower() == "vs":
+                home = " ".join(words[max(0, i-2):i]).title()
+                away = " ".join(words[i+1:i+3]).title()
+                break
+        if home and away:
+            stats = await get_advanced_stats(home, away)
+            if stats:
+                extra_context = "\n\n[REAL STATS FOR " + home + " vs " + away + "]\n" + stats + "\n[END]"
+            fixtures = await get_todays_fixtures()
+            extra_context += "\n\n[TODAY FIXTURES]\n" + fixtures[:1500] + "\n[END]"
+    elif code:
+        fetch_data, raw_selections = await fetch_booking_code(code)
+        if fetch_data:
+            extra_context = "\n\n[BOOKING CODE DATA]\n" + fetch_data + "\n[END]"
+            if raw_selections:
+                user_code_data[user_number] = raw_selections
+            print("Fetched code data for: " + code)
+        else:
+            extra_context = "\n\n[Could not fetch code " + code + ". Tell user code may be expired and still help.]"
+            print("Could not fetch code: " + code)
+    elif needs_fixtures:
+        fixtures = await get_todays_fixtures()
+        extra_context = "\n\n[TODAY FIXTURES WITH ODDS]\n" + fixtures[:2500] + "\n[END]"
+
+    reply = await ask_ai(text + extra_context, history)
+
+    raw_selections = user_code_data.get(user_number, [])
+
+    async def generate_code(selections):
+        if not selections:
+            return ""
+        bookie = selections[0].get("_bookie", "sportybet")
+        if bookie == "bet9ja":
+            return await create_bet9ja_code(selections)
+        if bookie == "betpawa":
+            return await create_betpawa_code(selections)
+        return await create_sportybet_code(selections)
+
+    def bookie_label(selections):
+        if not selections:
+            return "SportyBet"
+        bookie = selections[0].get("_bookie", "sportybet")
+        return {"bet9ja": "Bet9ja", "betpawa": "Betpawa"}.get(bookie, "SportyBet")
+
+    if raw_selections and "KEPT_GAMES:" in reply:
+        kept_nums = extract_kept_games(reply, "KEPT_GAMES")
+        reply = re.sub(r'KEPT_GAMES:\[[0-9,\s]+\]', '', reply).strip()
+        reply = re.sub(r'📌 Generating your new \w+ code\.\.\.\s*', '', reply).strip()
+        reply = re.sub(r'📌 Generating your new SportyBet code\.\.\.\s*', '', reply).strip()
+        if kept_nums:
+            kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
+            if kept_selections:
+                new_code = await generate_code(kept_selections)
+                label = bookie_label(kept_selections)
+                if new_code:
+                    reply = "\U0001F3AB Your new " + label + " code: *" + new_code + "*\n\n---\n\n" + reply
+                else:
+                    reply += "\n\n\u26A0\uFE0F Could not auto-generate code. Please book these games manually on " + label + "."
+
+    if raw_selections and "SLIP_1_GAMES:" in reply:
+        slip_num = 1
+        while "SLIP_" + str(slip_num) + "_GAMES:" in reply:
+            kept_nums = extract_kept_games(reply, "SLIP_" + str(slip_num) + "_GAMES")
+            pattern = r"SLIP_" + str(slip_num) + r"_GAMES:\[[0-9,\s]+\]"
+            reply = re.sub(r'📌 Generating Slip ' + str(slip_num) + r' code\.\.\.\s*', '', reply).strip()
+            if kept_nums:
+                kept_selections = [raw_selections[i-1] for i in kept_nums if 0 < i <= len(raw_selections)]
+                if kept_selections:
+                    new_code = await generate_code(kept_selections)
+                    label = bookie_label(kept_selections)
+                    if new_code:
+                        reply = re.sub(pattern, "\U0001F4CC Slip " + str(slip_num) + " Code (" + label + "): *" + new_code + "*", reply)
+                    else:
+                        reply = re.sub(pattern, "\u26A0\uFE0F Could not generate slip " + str(slip_num) + " code for " + label + ".", reply)
+                else:
+                    reply = re.sub(pattern, "", reply)
+            else:
+                reply = re.sub(pattern, "", reply)
+            slip_num += 1
+
+    history.append({"role": "user", "content": text})
+    history.append({"role": "assistant", "content": reply})
+    if len(history) > 20:
+        user_history[user_number] = history[-20:]
+    return reply
+
+
+def send_whatsapp_message(to, message):
+    try:
+        from_num = TWILIO_NUMBER if TWILIO_NUMBER.startswith('whatsapp:') else "whatsapp:" + TWILIO_NUMBER
+        to_num = to if to.startswith('whatsapp:') else "whatsapp:" + to
+        if len(message) > 1500:
+            parts = [message[i:i+1500] for i in range(0, len(message), 1500)]
+            for part in parts:
+                twilio_client.messages.create(from_=from_num, body=part, to=to_num)
+        else:
+            twilio_client.messages.create(from_=from_num, body=message, to=to_num)
+    except Exception as e:
+        print("\nTWILIO SEND ERROR: " + str(e) + "\n")
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    incoming_msg = request.values.get("Body", "").strip()
+    from_number  = request.values.get("From", "")
+    print("Message from " + from_number + ": " + incoming_msg)
+
+    def process_and_reply():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            reply = loop.run_until_complete(process_message(from_number, incoming_msg))
+            loop.close()
+            send_whatsapp_message(from_number, reply)
+        except Exception as e:
+            print("THREAD ERROR: " + str(e))
+            send_whatsapp_message(from_number, "Sorry something went wrong. Please try again.")
+
+    threading.Thread(target=process_and_reply).start()
+    return str(MessagingResponse())
+
+
+@app.route("/", methods=["GET"])
+def home():
+    return "SportyBot AI WhatsApp is running!"
+
+
+if __name__ == "__main__":
+    print("Starting SportyBot AI WhatsApp with Advanced Stats...")
+    print("Webhook: https://lunacy-deploy-attic.ngrok-free.dev/webhook")
+    app.run(host="0.0.0.0", port=5000, debug=False)
