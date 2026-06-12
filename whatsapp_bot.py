@@ -917,14 +917,18 @@ def webhook():
 def test_betpawa():
     code = "IL839DG"
     try:
+        import sys
+        print("TEST: Starting Betpawa test for", code, flush=True)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         result, selections = loop.run_until_complete(try_fetch_betpawa(code))
         loop.close()
+        print("TEST: Result length:", len(result) if result else 0, flush=True)
+        print("TEST: Selections count:", len(selections), flush=True)
         return f"Result: {result[:500] if result else 'EMPTY'}<br>Selections: {selections}"
     except Exception as e:
-        return f"ERROR: {str(e)}"
-@app.route("/", methods=["GET"])
+        print("TEST ERROR:", str(e), flush=True)
+        return f"ERROR: {str(e)}"@app.route("/", methods=["GET"])
 def home():
     return "SportyBot AI WhatsApp is running!"
 
