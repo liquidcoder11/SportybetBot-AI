@@ -612,21 +612,27 @@ async def try_fetch_betking(code):
 async def try_fetch_betpawa(code):
     url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number/" + code.upper()
     hdrs = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
         "Accept": "application/json",
         "X-Pawa-Brand": "betpawa-nigeria",
         "X-Pawa-Language": "en",
         "deviceType": "web",
+        "devicetype": "web",
+        "Origin": "https://www.betpawa.ng",
         "Referer": "https://www.betpawa.ng/"
     }
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                print("Betpawa fetch status:", resp.status)
                 if resp.status != 200:
+                    print("Betpawa fetch failed with status:", resp.status)
                     return "", []
                 data = await resp.json(content_type=None)
+                print("Betpawa fetch response keys:", list(data.keys()) if data else "EMPTY")
         items = data.get("items", [])
         if not items:
+            print("Betpawa fetch: no items found")
             return "", []
         lines = ["Booking Code: " + code.upper(), "Bookie: Betpawa", "Total games: " + str(len(items)), "", "Selections:"]
         total_odds = 1.0
@@ -638,22 +644,22 @@ async def try_fetch_betpawa(code):
             participants = item.get("eventInfo", {}).get("participants", [])
             home = participants[0]["name"] if len(participants) > 0 else "?"
             away = participants[1]["name"] if len(participants) > 1 else "?"
+            competition = item.get("eventInfo", {}).get("competition", {}).get("name", "")
             selections_list = item.get("selections", [])
             market = selections_list[0].get("market", {}).get("displayName", "") if selections_list else ""
             pick = selections_list[0].get("selectionInfo", {}).get("displayName", "") if selections_list else ""
             selection_id = odds_data.get("selections", [None])[0]
-            lines.append(str(i) + ". " + home + " vs " + away + " | " + market + " - " + pick + " @ " + str(odds))
+            lines.append(str(i) + ". " + home + " vs " + away + " | " + competition + " | " + market + " - " + pick + " @ " + str(odds))
             raw_selections.append({
                 "selection_id": int(selection_id) if selection_id else None,
                 "_bookie": "betpawa"
             })
         lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
+        print("Betpawa fetch success, returning", len(lines), "lines and", len(raw_selections), "selections")
         return "\n".join(lines), raw_selections
-    except Exception:
+    except Exception as e:
+        print("Betpawa fetch exception:", str(e))
         return "", []
-
-
-async def fetch_booking_code(code):
     fetchers = [
         try_fetch_sportybet,
         try_fetch_bet9ja,
