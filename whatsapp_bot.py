@@ -907,7 +907,17 @@ def webhook():
     threading.Thread(target=process_and_reply).start()
     return str(MessagingResponse())
 
-
+@app.route("/test_betpawa", methods=["GET"])
+def test_betpawa():
+    code = "IL839DG"
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result, selections = loop.run_until_complete(try_fetch_betpawa(code))
+        loop.close()
+        return f"Result: {result[:500] if result else 'EMPTY'}<br>Selections: {selections}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 @app.route("/", methods=["GET"])
 def home():
     return "SportyBot AI WhatsApp is running!"
