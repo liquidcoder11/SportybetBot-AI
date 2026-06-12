@@ -451,6 +451,10 @@ async def create_bet9ja_code(selections):
 
 
 async def create_betpawa_code(selections):
+   print("================================")
+print("BETPAWA DEBUG")
+print("Selections received:", selections)
+print("================================")
     print("\n--- ATTEMPTING TO GENERATE BETPAWA CODE FOR " + str(len(selections)) + " GAMES ---")
     url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number"
     headers = {
