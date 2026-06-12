@@ -339,17 +339,14 @@ async def ask_ai(user_message, history):
             else:
                 return "AI error: " + str(e)
     return "Gemini is currently busy. Please try again in a moment."
-
-
 async def create_sportybet_code(selections):
-    print("\n--- ATTEMPTING TO GENERATE CODE FOR " + str(len(selections)) + " GAMES ---")
+    print("\n--- ATTEMPTING TO GENERATE SPORTYBET CODE FOR " + str(len(selections)) + " GAMES ---")
     if not SPORTYBET_COOKIES:
-        print("WARNING: SPORTYBET_COOKIES not set — attempting anonymous booking...")
-    print("RAW SELECTIONS SAMPLE: " + str(selections[0] if selections else "EMPTY"))
+        print("WARNING: SPORTYBET_COOKIES not set")
     url = "https://www.sportybet.com/api/ng/orders/share"
     hdrs = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
         "Content-Type": "application/json",
         "Referer": "https://www.sportybet.com/ng/sports/football",
         "Origin": "https://www.sportybet.com",
@@ -357,39 +354,30 @@ async def create_sportybet_code(selections):
     }
     if SPORTYBET_COOKIES:
         hdrs["Cookie"] = SPORTYBET_COOKIES
-    clean_selections = []
+    clean = []
     for s in selections:
-        clean_selections.append({
-            "eventId":   s.get("eventId"),
-            "marketId":  s.get("marketId"),
+        clean.append({
+            "eventId": s.get("eventId"),
+            "marketId": s.get("marketId"),
             "outcomeId": s.get("outcomeId"),
             "specifier": s.get("specifier", ""),
             "productId": s.get("productId", 3),
-            "sportId":   s.get("sportId", "sr:sport:1")
+            "sportId": s.get("sportId", "sr:sport:1")
         })
-    print("CLEAN SELECTIONS SAMPLE: " + str(clean_selections[0] if clean_selections else "EMPTY"))
-    payload = {"selections": clean_selections, "stake": 100000}
+    payload = {"selections": clean, "stake": 100000}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                print("SportyBet HTTP Status: " + str(resp.status))
                 raw_text = await resp.text()
-                print("SportyBet Raw Response: " + raw_text[:500])
-                try:
-                    data = json.loads(raw_text)
-                except Exception as je:
-                    print("JSON PARSE ERROR: " + str(je))
-                    return ""
-                print("SportyBet Full Response: " + str(data))
-                biz_code = data.get("bizCode")
-                if biz_code == 10000:
-                    new_code = data.get("data", {}).get("shareCode", "")
-                    print("SUCCESS! New Code: " + new_code)
-                    return new_code
-                print("FAILED — bizCode: " + str(biz_code) + " | msg: " + str(data.get("message", "")))
+                data = json.loads(raw_text)
+                if data.get("bizCode") == 10000:
+                    code = data.get("data", {}).get("shareCode", "")
+                    print("SUCCESS! SportyBet Code: " + code)
+                    return code
+                print("SportyBet FAILED: " + str(data.get("message", "")))
                 return ""
     except Exception as e:
-        print("CRITICAL ERROR talking to SportyBet: " + str(e))
+        print("SportyBet error: " + str(e))
         return ""
 
 
@@ -431,15 +419,13 @@ async def create_bet9ja_code(selections):
         "Content-Type": "application/x-www-form-urlencoded",
         "Origin": "https://sports.bet9ja.com",
         "Referer": "https://sports.bet9ja.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
     }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=body, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                print("Bet9ja HTTP Status: " + str(resp.status))
                 raw_text = await resp.text()
-                print("Bet9ja Raw Response: " + raw_text[:300])
                 data = json.loads(raw_text)
                 if data.get("status") == 1:
                     code = data.get("data", [{}])[0].get("RIS", "")
@@ -448,20 +434,16 @@ async def create_bet9ja_code(selections):
                 print("Bet9ja FAILED: " + str(data.get("error", "")))
                 return ""
     except Exception as e:
-        print("Bet9ja code gen error: " + str(e))
+        print("Bet9ja error: " + str(e))
         return ""
 
 
 async def create_betpawa_code(selections):
     print("\n--- ATTEMPTING TO GENERATE BETPAWA CODE FOR " + str(len(selections)) + " GAMES ---")
-    
     url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number"
-    
-    # Generate a device fingerprint (32 char hex string)
     device_fingerprint = hashlib.md5(str(datetime.now().timestamp()).encode()).hexdigest()
-    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Content-Type": "application/json",
         "Accept": "*/*",
         "Origin": "https://www.betpawa.ng",
@@ -475,73 +457,39 @@ async def create_betpawa_code(selections):
         "sentry-trace": str(uuid.uuid4()).replace("-", "") + "-0-0",
         "traceid": str(uuid.uuid4()).replace("-", "")
     }
-    
-    # Build selections array - each game as {type: "SINGLE", selections: [id]}
     betpawa_selections = []
     for s in selections:
-        selection_id = s.get("selection_id")
-        if selection_id:
-            betpawa_selections.append({
-                "type": "SINGLE",
-                "selections": [int(selection_id)]
-            })
+        sid = s.get("selection_id")
+        if sid:
+            betpawa_selections.append({"type": "SINGLE", "selections": [int(sid)]})
         else:
             print("WARNING: Missing selection_id in:", s)
-    
     if not betpawa_selections:
         print("ERROR: No valid Betpawa selection IDs")
         return ""
-    
-    body = {
-        "selections": {
-            "selections": betpawa_selections
-        }
-    }
-    
+    body = {"selections": {"selections": betpawa_selections}}
     print("Betpawa payload:", json.dumps(body))
-    
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=body, headers=headers, 
-                                  timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                print("Betpawa HTTP Status:", resp.status)
+            async with session.post(url, json=body, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 raw_text = await resp.text()
-                print("Betpawa Raw Response:", raw_text[:500])
-                
-                if resp.status != 200:
-                    print("Betpawa returned non-200 status")
-                    return ""
-                
-                try:
-                    data = json.loads(raw_text)
-                except Exception as je:
-                    print("JSON PARSE ERROR:", str(je))
-                    return ""
-                
-                print("Betpawa Parsed Response:", json.dumps(data)[:500])
-                
-                # Try multiple possible fields for the code
-                code = (data.get("code") or 
-                       data.get("bookingNumber") or 
-                       data.get("booking_code") or
-                       data.get("data", {}).get("code") or "")
-                
+                print("Betpawa Status:", resp.status, "Response:", raw_text[:300])
+                data = json.loads(raw_text)
+                code = data.get("code") or data.get("bookingNumber") or ""
                 if code:
                     print("SUCCESS! Betpawa Code:", code)
                     return code
-                
-                print("Betpawa FAILED - no code found in response")
+                print("Betpawa FAILED:", data)
                 return ""
-                
     except Exception as e:
-        print("Betpawa code gen error:", str(e))
+        print("Betpawa error:", str(e))
         return ""
 
 
 async def try_fetch_sportybet(code):
     url = "https://www.sportybet.com/api/ng/orders/share/" + code.upper()
     hdrs = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36",
         "Accept": "application/json",
         "Referer": "https://www.sportybet.com/ng/"
     }
@@ -582,7 +530,7 @@ async def try_fetch_sportybet(code):
 async def try_fetch_bet9ja(code):
     url = "https://coupon.bet9ja.com/desktop/feapi/CouponAjax/GetBookABetCouponV2?couponCode=" + code.upper()
     hdrs = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
         "Referer": "https://www.bet9ja.com/"
     }
@@ -602,7 +550,6 @@ async def try_fetch_bet9ja(code):
         raw_selections = []
         for i, (key, bet) in enumerate(outcomes.items(), 1):
             odds = float(bet.get("V", bet.get("OD", 1)))
-            print("BET9JA ODDS DEBUG: key=" + key + " V=" + str(bet.get("V")) + " OD=" + str(bet.get("OD")) + " used=" + str(odds))
             total_odds *= odds
             name = bet.get("E_NAME", "?")
             market = bet.get("MN", "")
@@ -627,11 +574,10 @@ async def try_fetch_bet9ja(code):
     except Exception:
         return "", []
 
-
 async def try_fetch_betking(code):
     url = "https://www.betking.com/api/sports/v1/bet/Booked/" + code.upper() + "/en"
     hdrs = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
         "Referer": "https://www.betking.com/"
     }
@@ -707,54 +653,12 @@ async def try_fetch_betpawa(code):
         return "", []
 
 
-async def try_fetch_footballcom(code):
-    url = "https://www.football.com/api/ng/orders/share/" + code.upper()
-    hdrs = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36",
-        "Accept": "application/json",
-        "Referer": "https://www.football.com/"
-    }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status != 200:
-                    return "", []
-                data = await resp.json(content_type=None)
-        ticket_data = data.get("data", {})
-        outcomes = ticket_data.get("outcomes", [])
-        ticket = ticket_data.get("ticket", {})
-        raw_selections = ticket.get("selections", [])
-        display_odds = ticket.get("displayTotalOdds", "?")
-        if outcomes:
-            lines = ["Booking Code: " + code.upper(), "Bookie: Football.com", "Total games: " + str(len(outcomes)), "", "Selections:"]
-            for i, outcome in enumerate(outcomes, 1):
-                home = outcome.get("homeTeamName", "?")
-                away = outcome.get("awayTeamName", "?")
-                                tournament = outcome.get("sport", {}).get("category", {}).get("tournament", {}).get("name", "")
-                markets = outcome.get("markets", [])
-                market_name = pick_name = pick_odds = "?"
-                if markets:
-                    m = markets[0]
-                    market_name = m.get("desc", "")
-                    outcomes_list = m.get("outcomes", [])
-                    if outcomes_list:
-                        pick_name = outcomes_list[0].get("desc", "")
-                        pick_odds = str(outcomes_list[0].get("odds", "?"))
-                lines.append(str(i) + ". " + home + " vs " + away + " | " + tournament + " | " + market_name + " - " + pick_name + " @ " + pick_odds)
-            lines.append("Combined Odds: " + display_odds + "x")
-            return "\n".join(lines), raw_selections
-        return "", []
-    except Exception:
-        return "", []
-
-
 async def fetch_booking_code(code):
     fetchers = [
         try_fetch_sportybet,
         try_fetch_bet9ja,
         try_fetch_betking,
         try_fetch_betpawa,
-        try_fetch_footballcom,
     ]
     for fetcher in fetchers:
         result, selections = await fetcher(code)
