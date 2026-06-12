@@ -552,27 +552,21 @@ async def try_fetch_bet9ja(code):
         lines = ["Booking Code: " + code.upper(), "Bookie: Bet9ja", "Total games: " + str(len(outcomes)), "", "Selections:"]
         total_odds = 1.0
         raw_selections = []
-        for i, (key, bet) in enumerate(outcomes.items(), 1):
-            odds = float(bet.get("V", bet.get("OD", 1)))
-            print("BET9JA ODDS DEBUG: key=" + key + " V=" + str(bet.get("V")) + " OD=" + str(bet.get("OD")) + " used=" + str(odds))
+        for i, item in enumerate(items, 1):
+            odds_data = item.get("odds", {})
+            odds = float(odds_data.get("price", 1))
             total_odds *= odds
-            name = bet.get("E_NAME", "?")
-            market = bet.get("MN", "")
-            pick = bet.get("ON", "")
-            lines.append(str(i) + ". " + name + " | " + market + " - " + pick + " @ " + str(odds))
-            sid = key.split("$")[1] if "$" in key else key
+            participants = item.get("eventInfo", {}).get("participants", [])
+            home = participants[0]["name"] if len(participants) > 0 else "?"
+            away = participants[1]["name"] if len(participants) > 1 else "?"
+            selections_list = item.get("selections", [])
+            market = selections_list[0].get("market", {}).get("displayName", "") if selections_list else ""
+            pick = selections_list[0].get("selectionInfo", {}).get("displayName", "") if selections_list else ""
+            selection_id = odds_data.get("selections", [None])[0]
+            lines.append(str(i) + ". " + home + " vs " + away + " | " + market + " - " + pick + " @ " + str(odds))
             raw_selections.append({
-                "E_ID": bet.get("E_ID"),
-                "E_C": bet.get("E_C", ""),
-                "E_NAME": name,
-                "M_NAME": market,
-                "SGN": bet.get("SGN", ""),
-                "sid": sid,
-                "V": str(odds),
-                "GN": bet.get("GN", ""),
-                "STARTDATE": bet.get("STARTDATE", ""),
-                "SPORT_ID": bet.get("SPORT_ID", 1),
-                "_bookie": "bet9ja"
+                "selection_id": int(selection_id) if selection_id else None,
+                "_bookie": "betpawa"
             })
         lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
         return "\n".join(lines), raw_selections
