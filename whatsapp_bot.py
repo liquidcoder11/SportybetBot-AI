@@ -618,8 +618,8 @@ async def try_fetch_betpawa(code):
         "Accept-Language": "en-NG,en;q=0.9,en-US;q=0.8",
         "Origin": "https://www.betpawa.ng",
         "Referer": "https://www.betpawa.ng/booking",
-        "X-Pawa-Brand": "betpawa-nigeria",
-        "X-Pawa-Language": "en",
+        "x-pawa-brand": "betpawa-nigeria",
+        "x-pawa-language": "en",
         "deviceType": "web",
         "devicetype": "web",
         "sec-ch-ua": "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"",
@@ -927,7 +927,7 @@ def webhook():
 
 @app.route("/test_betpawa", methods=["GET"])
 def test_betpawa():
-    code = "IL839DG"
+    code = request.args.get("code", "IL839DG")
     try:
         import sys
         print("TEST: Starting Betpawa test for", code, flush=True)
