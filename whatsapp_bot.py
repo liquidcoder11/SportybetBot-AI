@@ -455,7 +455,8 @@ async def create_betpawa_code(selections):
         "x-device-fingerprint": device_fingerprint,
         "baggage": "sentry-environment=production,sentry-release=frontend-react-web@2.233.137",
         "sentry-trace": str(uuid.uuid4()).replace("-", "") + "-0-0",
-        "traceid": str(uuid.uuid4()).replace("-", "")
+        "traceid": str(uuid.uuid4()).replace("-", ""),
+        "cookie": os.getenv("BETPAWA_COOKIES", ""),
     }
     betpawa_selections = []
     for s in selections:
@@ -628,6 +629,8 @@ async def try_fetch_betpawa(code):
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
+        "cookie": os.getenv("BETPAWA_COOKIES", ""),
+    }
     }
     try:
         async with aiohttp.ClientSession() as session:
