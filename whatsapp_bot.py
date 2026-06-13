@@ -613,17 +613,27 @@ async def try_fetch_betpawa(code):
     url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number/" + code.upper()
     hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
-        "Accept": "application/json",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://www.betpawa.ng",
+        "Referer": "https://www.betpawa.ng/",
         "X-Pawa-Brand": "betpawa-nigeria",
         "X-Pawa-Language": "en",
         "deviceType": "web",
         "devicetype": "web",
-        "Origin": "https://www.betpawa.ng",
-        "Referer": "https://www.betpawa.ng/"
+        "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": "\"Windows\"",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
     }
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
                 print("Betpawa fetch status:", resp.status)
                 if resp.status != 200:
                     print("Betpawa fetch failed with status:", resp.status)
@@ -655,12 +665,11 @@ async def try_fetch_betpawa(code):
                 "_bookie": "betpawa"
             })
         lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
-        print("Betpawa fetch success, returning", len(lines), "lines and", len(raw_selections), "selections")
+        print("Betpawa fetch success!")
         return "\n".join(lines), raw_selections
     except Exception as e:
         print("Betpawa fetch exception:", str(e))
-        return "", []
-    fetchers = [
+        return "", []    fetchers = [
         try_fetch_sportybet,
         try_fetch_bet9ja,
         try_fetch_betking,
