@@ -942,7 +942,10 @@ def test_betpawa():
         return f"Result: {result[:500] if result else 'EMPTY'}<br>Selections: {selections}"
     except Exception as e:
         print("TEST ERROR:", str(e), flush=True)
-        return f"ERROR: {str(e)}"@app.route("/", methods=["GET"])
+        return f"ERROR: {str(e)}"
+
+
+@app.route("/", methods=["GET"])
 def home():
     return "SportyBot AI WhatsApp is running!"
 
