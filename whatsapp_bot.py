@@ -669,7 +669,8 @@ async def try_fetch_betpawa(code):
         return "\n".join(lines), raw_selections
     except Exception as e:
         print("Betpawa fetch exception:", str(e))
-        return "", []    fetchers = [
+        return "", []        async def fetch_booking_code(code):
+	fetchers = [    
         try_fetch_sportybet,
         try_fetch_bet9ja,
         try_fetch_betking,
