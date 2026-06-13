@@ -631,7 +631,6 @@ async def try_fetch_betpawa(code):
         "sec-fetch-site": "same-origin",
         "cookie": os.getenv("BETPAWA_COOKIES", ""),
     }
-    }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
