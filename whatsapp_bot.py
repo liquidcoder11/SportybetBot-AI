@@ -452,7 +452,7 @@ async def try_fetch_betpawa(code):
         "cookie": os.getenv("BETPAWA_COOKIES", ""),
     }
     try:
-        async with AsyncSession(impersonate="firefox117") as session:
+        async with AsyncSession(impersonate="firefox102") as session:
             resp = await session.post(url, json={"code": code.upper()}, headers=hdrs, timeout=10)
             print("Betpawa fetch status:", resp.status_code)
             if resp.status_code != 200:
