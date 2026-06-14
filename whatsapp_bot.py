@@ -473,10 +473,11 @@ async def create_bet9ja_code(selections):
 
 
 async def try_fetch_betpawa(code):
-    url = "https://bookie-proxy.olusegun2025.workers.dev/?bookie=betpawa&code=" + code.upper()
+    url = "https://lunacy-deploy-attic.ngrok-free.dev/betpawa?code=" + code.upper()
     hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json"
+        "Accept": "application/json",
+        "ngrok-skip-browser-warning": "true"
     }
     try:
         async with aiohttp.ClientSession() as session:
