@@ -669,69 +669,6 @@ async def try_fetch_betking(code):
         return "", []
 
 
-async def try_fetch_betpawa(code):
-    url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number/" + code.upper()
-    hdrs = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "application/x-protobuf",
-        "Content-Type": "application/x-protobuf",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Accept-Language": "en-NG,en;q=0.9,en-US;q=0.8",
-        "Origin": "https://www.betpawa.ng",
-        "Referer": "https://www.betpawa.ng/booking",
-        "x-pawa-brand": "betpawa-nigeria",
-        "x-pawa-language": "en",
-        "deviceType": "web",
-        "devicetype": "web",
-        "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": "\"Windows\"",
-        "sec-fetch-dest": "empty",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-origin",
-        "cookie": os.getenv("BETPAWA_COOKIES", ""),
-    }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10), ssl=False) as resp:
-                print("Betpawa fetch status:", resp.status)
-                if resp.status != 200:
-                    print("Betpawa fetch failed with status:", resp.status)
-                    return "", []
-                data = await resp.json(content_type=None)
-                print("Betpawa fetch response keys:", list(data.keys()) if data else "EMPTY")
-        items = data.get("items", [])
-        if not items:
-            print("Betpawa fetch: no items found")
-            return "", []
-        lines = ["Booking Code: " + code.upper(), "Bookie: Betpawa", "Total games: " + str(len(items)), "", "Selections:"]
-        total_odds = 1.0
-        raw_selections = []
-        for i, item in enumerate(items, 1):
-            odds_data = item.get("odds", {})
-            odds = float(odds_data.get("price", 1))
-            total_odds *= odds
-            participants = item.get("eventInfo", {}).get("participants", [])
-            home = participants[0]["name"] if len(participants) > 0 else "?"
-            away = participants[1]["name"] if len(participants) > 1 else "?"
-            competition = item.get("eventInfo", {}).get("competition", {}).get("name", "")
-            selections_list = item.get("selections", [])
-            market = selections_list[0].get("market", {}).get("displayName", "") if selections_list else ""
-            pick = selections_list[0].get("selectionInfo", {}).get("displayName", "") if selections_list else ""
-            selection_id = odds_data.get("selections", [None])[0]
-            lines.append(str(i) + ". " + home + " vs " + away + " | " + competition + " | " + market + " - " + pick + " @ " + str(odds))
-            raw_selections.append({
-                "selection_id": int(selection_id) if selection_id else None,
-                "_bookie": "betpawa"
-            })
-        lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
-        print("Betpawa fetch success!")
-        return "\n".join(lines), raw_selections
-    except Exception as e:
-        print("Betpawa fetch exception:", str(e))
-        return "", []
-
-
 async def fetch_booking_code(code):
 
     fetchers = [
