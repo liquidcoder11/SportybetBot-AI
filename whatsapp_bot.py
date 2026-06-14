@@ -440,14 +440,18 @@ async def create_bet9ja_code(selections):
 
 
 async def try_fetch_betpawa(code):
-    url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number/" + code.upper()
+    url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number"
     hdrs = {
         "Accept": "application/json",
+        "Content-Type": "application/json",
         "x-pawa-brand": "betpawa-nigeria",
         "x-pawa-language": "en",
         "deviceType": "web",
         "Referer": "https://www.betpawa.ng/",
-try:
+        "Origin": "https://www.betpawa.ng",
+        "cookie": os.getenv("BETPAWA_COOKIES", ""),
+    }
+    try:
         async with AsyncSession(impersonate="firefox117") as session:
             resp = await session.post(url, json={"code": code.upper()}, headers=hdrs, timeout=10)
             print("Betpawa fetch status:", resp.status_code)
@@ -487,7 +491,6 @@ try:
     except Exception as e:
         print("Betpawa fetch exception:", str(e))
         return "", []
-
 async def try_fetch_paripesa(code):
     print("\n--- ATTEMPTING TO FETCH PARIPESA CODE: " + code + " ---")
     url = "https://paripesa.ng/service-api/LiveBet-update/Open/UpdateCoupon"
