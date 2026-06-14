@@ -440,7 +440,7 @@ async def create_bet9ja_code(selections):
 
 
 async def try_fetch_betpawa(code):
-    url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number"
+    url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number/" + code.upper()
     hdrs = {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -453,7 +453,7 @@ async def try_fetch_betpawa(code):
     }
     try:
         async with AsyncSession(impersonate="chrome110") as session:
-            resp = await session.post(url, json={"code": code.upper()}, headers=hdrs, timeout=10)
+            resp = await session.get(url, headers=hdrs, timeout=10)
             print("Betpawa fetch status:", resp.status_code)
             if resp.status_code != 200:
                 body = resp.text
