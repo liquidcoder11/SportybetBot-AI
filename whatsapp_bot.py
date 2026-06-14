@@ -489,6 +489,60 @@ async def try_fetch_betpawa(code):
         print("Betpawa fetch exception:", str(e))
         return "", []
 
+async def try_fetch_paripesa(code):
+    print("\n--- ATTEMPTING TO FETCH PARIPESA CODE: " + code + " ---")
+    url = "https://paripesa.ng/service-api/LiveBet-update/Open/UpdateCoupon"
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "Origin": "https://paripesa.ng",
+        "Referer": "https://paripesa.ng/en/top-events/wc2026",
+        "x-app-n": "__BETTING_APP__",
+        "x-requested-with": "XMLHttpRequest",
+        "x-svc-source": "__BETTING_APP__",
+        "is-srv": "false",
+    }
+    payload = {"Guid": code.upper(), "Lng": "en", "partner": 188}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                print("Paripesa fetch status:", resp.status)
+                if resp.status != 200:
+                    print("Paripesa fetch failed:", resp.status)
+                    return "", []
+                data = await resp.json(content_type=None)
+                print("Paripesa response keys:", list(data.keys()) if data else "EMPTY")
+        events = data.get("Events", data.get("events", []))
+        if not events:
+            print("Paripesa: no events found")
+            return "", []
+        lines = ["Booking Code: " + code.upper(), "Bookie: Paripesa", "Total games: " + str(len(events)), "", "Selections:"]
+        total_odds = 1.0
+        raw_selections = []
+        for i, event in enumerate(events, 1):
+            odds = float(event.get("Coef", event.get("coef", 1)))
+            total_odds *= odds
+            home = event.get("Team1", event.get("team1", "?"))
+            away = event.get("Team2", event.get("team2", "?"))
+            market = str(event.get("Type", ""))
+            game_id = event.get("GameId", event.get("gameId", ""))
+            bet_type = event.get("Type", 1)
+            lines.append(str(i) + ". " + home + " vs " + away + " | Type " + market + " @ " + str(odds))
+            raw_selections.append({
+                "GameId": game_id,
+                "Type": bet_type,
+                "Coef": odds,
+                "Param": event.get("Param", 0),
+                "Kind": event.get("Kind", 3),
+                "_bookie": "paripesa"
+            })
+        lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
+        print("Paripesa fetch success!")
+        return "\n".join(lines), raw_selections
+    except Exception as e:
+        print("Paripesa fetch exception:", str(e))
+        return "", []
 
 async def try_fetch_sportybet(code):
     url = "https://www.sportybet.com/api/ng/orders/share/" + code.upper()
@@ -683,6 +737,7 @@ async def fetch_booking_code(code):
         try_fetch_bet9ja,
         try_fetch_betking,
         try_fetch_betpawa,
+        try_fetch_paripesa,
     ]
     for fetcher in fetchers:
         result, selections = await fetcher(code)
@@ -930,6 +985,17 @@ def webhook():
 
     threading.Thread(target=process_and_reply).start()
     return str(MessagingResponse())
+@app.route("/test_paripesa", methods=["GET"])
+def test_paripesa():
+    code = request.args.get("code", "4HPFJ")
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result, selections = loop.run_until_complete(try_fetch_paripesa(code))
+        loop.close()
+        return f"Result: {result[:500] if result else 'EMPTY'}<br>Selections: {selections}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 
 @app.route("/test_betpawa", methods=["GET"])
 def test_betpawa():
