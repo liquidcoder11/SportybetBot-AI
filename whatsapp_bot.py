@@ -996,6 +996,29 @@ def test_paripesa():
         return f"Result: {result[:500] if result else 'EMPTY'}<br>Selections: {selections}"
     except Exception as e:
         return f"ERROR: {str(e)}"
+@app.route("/test_sportybet", methods=["GET"])
+def test_sportybet():
+    code = request.args.get("code", "")
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result, selections = loop.run_until_complete(try_fetch_sportybet(code))
+        loop.close()
+        return f"Result: {result[:500] if result else 'EMPTY'}<br>Selections: {selections}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
+
+@app.route("/test_bet9ja", methods=["GET"])
+def test_bet9ja():
+    code = request.args.get("code", "")
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result, selections = loop.run_until_complete(try_fetch_bet9ja(code))
+        loop.close()
+        return f"Result: {result[:500] if result else 'EMPTY'}<br>Selections: {selections}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 
 @app.route("/test_betpawa", methods=["GET"])
 def test_betpawa():
