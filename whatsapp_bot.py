@@ -451,7 +451,7 @@ async def try_fetch_betpawa(code):
     }
     try:
         async with AsyncSession(impersonate="chrome120") as session:
-            resp = await session.get(url, headers=hdrs, timeout=10)
+            resp = await session.post(url, json={"code": code.upper()}, headers=hdrs, timeout=10)
             print("Betpawa fetch status:", resp.status_code)
             if resp.status_code != 200:
                 print("Betpawa fetch failed with status:", resp.status_code)
