@@ -381,6 +381,39 @@ async def create_sportybet_code(selections):
         print("SportyBet error: " + str(e))
         return ""
 
+async def create_betpawa_code(selections):
+    print("\n--- ATTEMPTING TO GENERATE BETPAWA CODE FOR " + str(len(selections)) + " GAMES ---")
+    url = "https://bookie-proxy.olusegun2025.workers.dev/?bookie=betpawa&action=create"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    betpawa_selections = []
+    for s in selections:
+        sid = s.get("selection_id")
+        if sid:
+            betpawa_selections.append({"type": "SINGLE", "selections": [int(sid)]})
+    if not betpawa_selections:
+        print("ERROR: No valid Betpawa selection IDs")
+        return ""
+    body = {"selections": {"selections": betpawa_selections}}
+    print("Betpawa create payload:", json.dumps(body))
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=body, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                raw_text = await resp.text()
+                print("Betpawa create Status:", resp.status, "Response:", raw_text[:300])
+                data = json.loads(raw_text)
+                code = data.get("code") or data.get("bookingNumber") or ""
+                if code:
+                    print("SUCCESS! Betpawa Code:", code)
+                    return code
+                print("Betpawa create FAILED:", data)
+                return ""
+    except Exception as e:
+        print("Betpawa create error:", str(e))
+        return ""
 
 async def create_bet9ja_code(selections):
     print("\n--- ATTEMPTING TO GENERATE BET9JA CODE FOR " + str(len(selections)) + " GAMES ---")
@@ -442,30 +475,22 @@ async def create_bet9ja_code(selections):
 async def try_fetch_betpawa(code):
     url = "https://bookie-proxy.olusegun2025.workers.dev/?bookie=betpawa&code=" + code.upper()
     hdrs = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "x-pawa-brand": "betpawa-nigeria",
-        "x-pawa-language": "en",
-        "deviceType": "web",
-        "Referer": "https://www.betpawa.ng/",
-        "Origin": "https://www.betpawa.ng",
-        "cookie": os.getenv("BETPAWA_COOKIES", ""),
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
     }
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                print("Betpawa fetch status:", resp.status)
+            async with session.get(url, headers=hdrs, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                print("Betpawa proxy fetch status:", resp.status)
                 if resp.status != 200:
-                    body = await resp.text()
-                    print("BETPAWA_BODY_START:" + body[:500] + ":BETPAWA_BODY_END")
+                    print("Betpawa proxy fetch failed:", resp.status)
                     return "", []
                 data = await resp.json(content_type=None)
-                print("Betpawa fetch response keys:", list(data.keys()) if data else "EMPTY")
-        print("BETPAWA PROXY RESPONSE:", json.dumps(data)[:500])
+                print("Betpawa proxy keys:", list(data.keys()) if data else "EMPTY")
         items = data.get("items", [])
         print("ITEM COUNT:", len(items))
         if not items:
-            print("Betpawa fetch: no items found")
+            print("Betpawa proxy: no items found")
             return "", []
         lines = ["Booking Code: " + code.upper(), "Bookie: Betpawa", "Total games: " + str(len(items)), "", "Selections:"]
         total_odds = 1.0
@@ -488,10 +513,10 @@ async def try_fetch_betpawa(code):
                 "_bookie": "betpawa"
             })
         lines.append("Combined Odds: " + str(round(total_odds, 2)) + "x")
-        print("Betpawa fetch success!")
+        print("Betpawa proxy fetch success!")
         return "\n".join(lines), raw_selections
     except Exception as e:
-        print("Betpawa fetch exception:", str(e))
+        print("Betpawa proxy fetch exception:", str(e))
         return "", []
 async def try_fetch_paripesa(code):
     print("\n--- ATTEMPTING TO FETCH PARIPESA CODE: " + code + " ---")
