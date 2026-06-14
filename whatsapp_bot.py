@@ -440,7 +440,7 @@ async def create_bet9ja_code(selections):
 
 
 async def try_fetch_betpawa(code):
-    url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number/" + code.upper()
+    url = "https://bookie-proxy.olusegun2025.workers.dev/?bookie=betpawa&code=" + code.upper()
     hdrs = {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -452,8 +452,15 @@ async def try_fetch_betpawa(code):
         "cookie": os.getenv("BETPAWA_COOKIES", ""),
     }
     try:
-        async with AsyncSession(impersonate="chrome110") as session:
-            resp = await session.get(url, headers=hdrs, timeout=10)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                print("Betpawa fetch status:", resp.status)
+                if resp.status != 200:
+                    body = await resp.text()
+                    print("BETPAWA_BODY_START:" + body[:500] + ":BETPAWA_BODY_END")
+                    return "", []
+                data = await resp.json(content_type=None)
+                print("Betpawa fetch response keys:", list(data.keys()) if data else "EMPTY")
             print("Betpawa fetch status:", resp.status_code)
             if resp.status_code != 200:
                 body = resp.text
