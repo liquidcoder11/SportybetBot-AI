@@ -454,8 +454,9 @@ async def try_fetch_betpawa(code):
             resp = await session.post(url, json={"code": code.upper()}, headers=hdrs, timeout=10)
             print("Betpawa fetch status:", resp.status_code)
             if resp.status_code != 200:
-                print("Betpawa fetch failed with status:", resp.status_code)
-                return "", []
+                    print("Betpawa fetch failed with status:", resp.status_code)
+                    print("Betpawa response body:", resp.text[:500])
+                    return "", []
             data = resp.json()
             print("Betpawa fetch response keys:", list(data.keys()) if data else "EMPTY")
         items = data.get("items", [])
