@@ -614,7 +614,8 @@ async def try_fetch_betpawa(code):
     url = "https://www.betpawa.ng/api/sportsbook/v3/booking-number/" + code.upper()
     hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
+        "Accept": "application/x-protobuf",
+        "Content-Type": "application/x-protobuf",
         "Accept-Encoding": "gzip, deflate, br",
         "Accept-Language": "en-NG,en;q=0.9,en-US;q=0.8",
         "Origin": "https://www.betpawa.ng",
@@ -623,7 +624,7 @@ async def try_fetch_betpawa(code):
         "x-pawa-language": "en",
         "deviceType": "web",
         "devicetype": "web",
-        "sec-ch-ua": "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"",
+        "sec-ch-ua": "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": "\"Windows\"",
         "sec-fetch-dest": "empty",
