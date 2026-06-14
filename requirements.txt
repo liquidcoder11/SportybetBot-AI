@@ -3,3 +3,5 @@ twilio
 aiohttp
 python-dotenv
 gunicorn
+
+curl_cffi
