@@ -451,8 +451,8 @@ async def try_fetch_betpawa(code):
     }
     try:
         async with AsyncSession(impersonate="firefox117") as session:
-             body = resp.text
-                    print("BETPAWA_BODY_START:" + body[:1000] + ":BETPAWA_BODY_END")
+              body = resp.text
+                print("BETPAWA_BODY_START:" + body[:1000] + ":BETPAWA_BODY_END")
             print("Betpawa fetch status:", resp.status_code)
             if resp.status_code != 200:
                     print("Betpawa fetch failed with status:", resp.status_code)
