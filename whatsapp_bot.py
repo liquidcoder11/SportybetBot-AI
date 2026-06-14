@@ -461,13 +461,6 @@ async def try_fetch_betpawa(code):
                     return "", []
                 data = await resp.json(content_type=None)
                 print("Betpawa fetch response keys:", list(data.keys()) if data else "EMPTY")
-            print("Betpawa fetch status:", resp.status_code)
-            if resp.status_code != 200:
-                body = resp.text
-                print("BETPAWA_BODY_START:" + body[:1000] + ":BETPAWA_BODY_END")
-                return "", []
-            data = resp.json()
-            print("Betpawa fetch response keys:", list(data.keys()) if data else "EMPTY")
         items = data.get("items", [])
         if not items:
             print("Betpawa fetch: no items found")
